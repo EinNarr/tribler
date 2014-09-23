@@ -2091,6 +2091,7 @@ class CreditMiningList(SizeList):
         columns = [{'name': 'Speed up/down', 'width': '32em', 'autoRefresh': False},
                    {'name': 'Bytes up/down', 'width': '32em', 'autoRefresh': False},
                    {'name': 'Seeders/leechers', 'width': '27em'},
+                   {'name': 'Duplicate', 'showColumname': False, 'width':  '2em'},
                    {'name': 'Hash', 'width':  wx.LIST_AUTOSIZE, 'fmt': lambda ih: ih.encode('hex')[:10]},
                    {'name': 'Source', 'width': '40em', 'type': 'method', 'method': self.CreateSource}]
 
@@ -2228,6 +2229,9 @@ class CreditMiningList(SizeList):
 
                 item.RefreshColumn(0, '- / -')
 
+            is_dup = self.boosting_manager.torrents[item.original_data.infohash].get('is_duplicate', None)
+            item.RefreshColumn(3, ('*' if is_dup else '**') if is_dup != None else '')
+
         seeding_stats = [ds.get_seeding_statistics() for ds in boosting_dslist if ds.get_seeding_statistics()]
         self.b_up.SetLabel('Total bytes up: ' + self.utility.size_format(sum([stat['total_up'] for stat in seeding_stats])))
         self.b_down.SetLabel('Total bytes down: ' + self.utility.size_format(sum([stat['total_down'] for stat in seeding_stats])))
@@ -2245,7 +2249,7 @@ class CreditMiningList(SizeList):
         SizeList.SetData(self, data)
 
         if len(data) > 0:
-            data = [(file.infohash, ['- / -', '- / -', '%d / %d' % (file.num_seeders, file.num_leechers), file.infohash, ''], file, CreditMiningListItem) for file in data]
+            data = [(file.infohash, ['- / -', '- / -', '%d / %d' % (file.num_seeders, file.num_leechers), '', file.infohash, ''], file, CreditMiningListItem) for file in data]
         else:
             self.list.ShowMessage("No credit mining data available.")
             self.SetNrResults(0)
@@ -2256,7 +2260,7 @@ class CreditMiningList(SizeList):
     def RefreshData(self, key, data):
         List.RefreshData(self, key, data)
 
-        data = (data.infohash, ['-', '-', '%d / %d' % (data.num_seeders, data.num_leechers), data.infohash, ''], data)
+        data = (data.infohash, ['-', '-', '%d / %d' % (data.num_seeders, data.num_leechers), '', data.infohash, ''], data)
         self.list.RefreshData(key, data)
 
     def SetNrResults(self, nr):

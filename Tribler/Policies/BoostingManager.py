@@ -27,6 +27,26 @@ from Tribler.Core.CacheDB.Notifier import Notifier
 
 number_types = (int, long, float)
 
+def lev(a, b):
+    "Calculates the Levenshtein distance between a and b."
+    n, m = len(a), len(b)
+    if n > m:
+        # Make sure n <= m, to use O(min(n,m)) space
+        a, b = b, a
+        n, m = m, n
+
+    current = range(n + 1)
+    for i in range(1, m + 1):
+        previous, current = current, [i] + [0] * n
+        for j in range(1, n + 1):
+            add, delete = previous[j] + 1, current[j - 1] + 1
+            change = previous[j - 1]
+            if a[j - 1] != b[i - 1]:
+                change = change + 1
+            current[j] = min(add, delete, change)
+
+    return current[n]
+
 
 class BoostingManager:
 
@@ -134,6 +154,19 @@ class BoostingManager:
             source.kill_tasks()
             self.save()
 
+    def compare_torrents(self, t1, t2):
+        ff = lambda ft: ft[1] > 1024 * 1024
+        files1 = filter(ff, t1['metainfo'].get_files_with_length())
+        files2 = filter(ff, t2['metainfo'].get_files_with_length())
+
+        if len(files1) == len(files2):
+            for ft1 in files1:
+                for ft2 in files2:
+                    if ft1[1] != ft2[1] or lev(ft1[0], ft2[0]) > 5:
+                        return False
+            return True
+        return False
+
     def on_torrent_insert(self, source, infohash, torrent):
         # Remember where we got this torrent from
         if os.path.isdir(source) or source.startswith('http://'):
@@ -154,6 +187,17 @@ class BoostingManager:
                 torrent['metainfo'] = TorrentDef.load(torrent['metainfo'])
         else:
             torrent['metainfo'] = TorrentDefNoMetainfo(infohash, torrent['name'])
+
+        # If duplicates exist, set is_duplicate to True, except for the one with the most seeders.
+        duplicates = [other for other in self.torrents.values() if self.compare_torrents(torrent, other)]
+        if duplicates:
+            duplicates += [torrent]
+            healthiest_torrent = max([(torrent['num_seeders'], torrent) for torrent in duplicates])[1]
+            for torrent in duplicates:
+                is_duplicate = healthiest_torrent != torrent
+                torrent['is_duplicate'] = is_duplicate
+                if is_duplicate and torrent.get('download', None):
+                    self.stop_download(torrent['metainfo'].get_id(), torrent)
 
         self.torrents[infohash] = torrent
         print >> sys.stderr, 'BoostingManager: got new torrent', infohash.encode('hex'), 'from', source_str
@@ -223,7 +267,7 @@ class BoostingManager:
                     self.start_download(infohash, torrent)
                 elif torrent['download'].get_status() == DLSTATUS_SEEDING:
                     self.stop_download(infohash, torrent)
-            else:
+            elif not torrent.get('is_duplicate', False):
                 torrents[infohash] = torrent
 
         if self.policy and torrents:
