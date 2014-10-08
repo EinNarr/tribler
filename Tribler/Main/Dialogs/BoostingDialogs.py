@@ -10,7 +10,7 @@ from Tribler.Policies.BoostingManager import BoostingManager
 class AddBoostingSource(wx.Dialog):
 
     def __init__(self, parent):
-        wx.Dialog.__init__(self, parent, -1, 'Add boosting source', size=(475, 175), name="AddBoostingSourceDialog")
+        wx.Dialog.__init__(self, parent, -1, 'Add boosting source', size=(475, 475), name="AddBoostingSourceDialog")
 
         self.guiutility = GUIUtility.getInstance()
         self.channels = []
@@ -20,9 +20,15 @@ class AddBoostingSource(wx.Dialog):
         self.channel_radio = wx.RadioButton(self, -1, 'Channel:', style=wx.RB_GROUP)
         self.channel_choice = wx.Choice(self, -1)
         self.channel_choice.Bind(wx.EVT_CHOICE, lambda evt: self.channel_radio.SetValue(True))
+
         self.rss_feed_radio = wx.RadioButton(self, -1, 'RSS feed:')
         self.rss_feed_edit = wx.TextCtrl(self, -1)
         self.rss_feed_edit.Bind(wx.EVT_TEXT, lambda evt: self.rss_feed_radio.SetValue(True))
+
+        self.rss_dir_radio = wx.RadioButton(self, -1, 'RSS dir:')
+        self.rss_dir_edit = wx.TextCtrl(self, -1)
+        self.rss_dir_edit.Bind(wx.EVT_TEXT, lambda evt: self.rss_dir_radio.SetValue(True))
+
         self.archive_check = wx.CheckBox(self, -1, "Archive mode")
         ok_btn = wx.Button(self, -1, "OK")
         ok_btn.Bind(wx.EVT_BUTTON, self.OnOK)
@@ -35,6 +41,8 @@ class AddBoostingSource(wx.Dialog):
         sourceGrid.Add(self.channel_choice, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
         sourceGrid.Add(self.rss_feed_radio, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT | wx.TOP, 5)
         sourceGrid.Add(self.rss_feed_edit, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
+        sourceGrid.Add(self.rss_dir_radio, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT | wx.TOP, 5)
+        sourceGrid.Add(self.rss_dir_edit, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
         btnSizer = wx.BoxSizer(wx.HORIZONTAL)
         btnSizer.Add(ok_btn, 0, wx.RIGHT | wx.TOP | wx.BOTTOM, 5)
         btnSizer.Add(cancel_btn, 0, wx.ALL, 5)
@@ -62,8 +70,10 @@ class AddBoostingSource(wx.Dialog):
             selection = self.channel_choice.GetSelection()
             if selection < len(self.channels):
                 self.source = self.channels[selection][1]
-        else:
+        elif self.rss_feed_radio.GetValue():
             self.source = self.rss_feed_edit.GetValue()
+        else:
+            self.source = self.rss_dir_edit.GetValue()
         self.EndModal(wx.ID_OK)
 
     def OnCancel(self, event):
