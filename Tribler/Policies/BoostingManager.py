@@ -7,6 +7,7 @@ import urllib
 import random
 import HTMLParser
 import logging
+import time
 
 import libtorrent as lt
 
@@ -28,7 +29,13 @@ from Tribler.TrackerChecking.TrackerSession import MAX_TRACKER_MULTI_SCRAPE
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.FileHandler("boosting.log"))
+formatter = logging.Formatter(
+    "%(asctime)s.%(msecs).03dZ-%(levelname)s-%(message)s",
+    datefmt="%Y%m%dT%H%M%S")
+formatter.converter = time.gmtime
+handler = logging.FileHandler("boosting.log")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 number_types = (int, long, float)
 
