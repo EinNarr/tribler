@@ -32,3 +32,5 @@
 /swift.exe
 \#*\#
 flycheck_*
+*.swp
+pylintrc
