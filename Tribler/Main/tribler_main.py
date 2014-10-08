@@ -422,7 +422,7 @@ class ABCApp():
         self.sconfig.set_dispersy_tunnel_over_swift(True)
 
         # Arno, 2010-03-31: Hard upgrade to 50000 torrents collected
-        self.sconfig.set_torrent_collecting_max_torrents(50000)
+        self.sconfig.set_torrent_collecting_max_torrents(10)
 
         # Arno, 2012-05-21: Swift part II
         swiftbinpath = os.path.join(self.sconfig.get_install_dir(), "swift")
@@ -481,7 +481,6 @@ class ABCApp():
             from Tribler.community.channel.community import ChannelCommunity
             from Tribler.community.channel.preview import PreviewChannelCommunity
             from Tribler.community.metadata.community import MetadataCommunity
-            from Tribler.community.tunnel.community import TunnelCommunity
             from Tribler.community.tunnel.Socks5.server import Socks5Server
 
             # make sure this is only called once
@@ -502,18 +501,6 @@ class ABCApp():
             dispersy.define_auto_load(MetadataCommunity, session.dispersy_member, load=True)
             dispersy.define_auto_load(ChannelCommunity, session.dispersy_member, load=True)
             dispersy.define_auto_load(PreviewChannelCommunity, session.dispersy_member)
-
-            if not self.is_unit_testing and time() < self.utility.read_config('version_info').get('first_run', 0) + 8553600:
-                keypair = dispersy.crypto.generate_key(u"NID_secp160k1")
-                dispersy_member = dispersy.get_member(
-                    private_key=dispersy.crypto.key_to_bin(keypair),
-                )
-
-                dispersy.define_auto_load(TunnelCommunity, dispersy_member, load=True,
-                                          kargs={'session': session})[0]
-
-                session.set_anon_proxy_settings(2, ("127.0.0.1", session.get_tunnel_community_socks5_listen_port()))
-
 
             diff = time() - now
             self._logger.info("tribler: communities are ready in %.2f seconds", diff)
