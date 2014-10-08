@@ -1,16 +1,16 @@
 # Written by Egbert Bouman
 
 import os
-import sys
 import glob
 import json
 import urllib
 import random
 import HTMLParser
+import logging
+
 import libtorrent as lt
 
 from hashlib import sha1
-from traceback import print_exc
 from collections import defaultdict
 
 from Tribler.Core.Libtorrent.LibtorrentMgr import LibtorrentMgr
@@ -24,6 +24,11 @@ from Tribler.Utilities.TimedTaskQueue import TimedTaskQueue
 from Tribler.dispersy.util import call_on_reactor_thread
 from Tribler.Utilities.scraper import scrape_udp, scrape_tcp
 from Tribler.Core.CacheDB.Notifier import Notifier
+from Tribler.TrackerChecking.TrackerSession import MAX_TRACKER_MULTI_SCRAPE
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.FileHandler("boosting.log"))
 
 number_types = (int, long, float)
 
@@ -52,7 +57,7 @@ class BoostingManager:
 
     __single = None
 
-    def __init__(self, session, utility=None, policy=None, src_interval=20, sw_interval=20, max_per_source=100, max_active=5):
+    def __init__(self, session, utility=None, policy=None, src_interval=20, sw_interval=20, max_per_source=100, max_active=2):
         BoostingManager.__single = self
 
         self.session = session
@@ -61,6 +66,8 @@ class BoostingManager:
         self.ltmgr = LibtorrentMgr.getInstance()
         self.tqueue = TimedTaskQueue("BoostingManager")
         self.credit_mining_path = os.path.join(DefaultDownloadStartupConfig.getInstance().get_dest_dir(), "credit_mining")
+        if not os.path.exists(self.credit_mining_path):
+            os.mkdir(self.credit_mining_path)
 
         self.boosting_sources = {}
 
@@ -76,11 +83,12 @@ class BoostingManager:
 
         # SeederRatioPolicy is the default policy
         self.set_policy((policy or SeederRatioPolicy)(self.session))
+        logger.info("Using policy %s", self.policy)
 
         self.load()
 
         self.tqueue.add_task(self._select_torrent, self.swarm_interval)
-        self.tqueue.add_task(self.scrape_trackers, 60)
+        self.tqueue.add_task(self.scrape_trackers, 30)
 
     def get_instance(*args, **kw):
         if BoostingManager.__single is None:
@@ -101,19 +109,19 @@ class BoostingManager:
                 string_to_source = lambda s: s.decode('hex') if len(s) == 40 and not (os.path.isdir(s) or s.startswith('http://')) else s
                 for source in json.loads(self.utility.config.Read('boosting_sources')):
                     self.add_source(string_to_source(source))
-                print >> sys.stderr, "BoostingManager: initial boosting sources", self.boosting_sources.keys()
+                logger.info("Initial boosting sources %s",
+                            self.boosting_sources.keys())
             except:
-                print >> sys.stderr, "BoostingManager: no initial boosting sources"
+                logger.info("No initial boosting sources")
 
     def save(self):
         if self.utility:
             try:
                 source_to_string = lambda s: s.encode('hex') if len(s) == 20 and not (os.path.isdir(s) or s.startswith('http://')) else s
                 self.utility.write_config('boosting_sources', json.dumps([source_to_string(source) for source in self.boosting_sources.keys()]))
-                print >> sys.stderr, "BoostingManager: saved sources", self.boosting_sources.keys()
+                logger.info("Saved sources %s", self.boosting_sources.keys())
             except:
-                print >> sys.stderr, "BoostingManager: could not save state"
-                print_exc()
+                logger.exception("Could not save state")
 
     def set_policy(self, policy):
         self.policy = policy
@@ -141,12 +149,12 @@ class BoostingManager:
             elif len(source) == 20:
                 self.boosting_sources[source] = ChannelSource(*args)
             else:
-                print >> sys.stderr, 'BoostingManager: got unknown source', source
+                logger.error("Cannot add unknown source %s", source)
                 error = True
             if not error:
                 self.save()
         else:
-            print >> sys.stderr, 'BoostingManager: already have source', source
+            logger.info("Already have source %s", source)
 
     def remove_source(self, source_key):
         if source_key in self.boosting_sources:
@@ -200,7 +208,8 @@ class BoostingManager:
                     self.stop_download(torrent['metainfo'].get_id(), torrent)
 
         self.torrents[infohash] = torrent
-        print >> sys.stderr, 'BoostingManager: got new torrent', infohash.encode('hex'), 'from', source_str
+        logger.info("Got new torrent %s from %s", infohash.encode('hex'),
+                    source_str)
 
     def scrape_trackers(self):
         num_requests = 0
@@ -216,10 +225,23 @@ class BoostingManager:
         results = defaultdict(lambda: [0, 0])
         for tracker, infohashes in trackers.iteritems():
             try:
-                reply = scrape_udp(tracker, infohashes) if tracker.startswith('udp://') else scrape_tcp(tracker, infohashes)
-                print >> sys.stderr, 'BoostingManager: got reply from tracker', tracker, ':', reply
+                reply = {}
+                if tracker.startswith("http://tracker.etree.org"):
+                    for infohash in infohashes:
+                        reply.update(scrape_tcp(tracker, (infohash,)))
+                elif tracker.startswith("udp://"):
+                    for group in range(len(infohashes) //
+                                       MAX_TRACKER_MULTI_SCRAPE):
+                        reply.update(scrape_udp(tracker, infohashes[
+                            group*MAX_TRACKER_MULTI_SCRAPE:
+                            (group+1)*MAX_TRACKER_MULTI_SCRAPE]))
+                    reply.update(scrape_udp(tracker, infohashes[
+                        -(len(infohashes)%MAX_TRACKER_MULTI_SCRAPE):]))
+                else:
+                    reply = scrape_tcp(tracker, infohashes)
+                logger.debug("Got reply from tracker %s : %s", tracker, reply)
             except:
-                print >> sys.stderr, 'BoostingManager: did not get reply from tracker'
+                logger.exception("Did not get reply from tracker %s", tracker)
             else:
                 for infohash, info in reply.iteritems():
                     if info['complete'] > results[infohash][0]:
@@ -231,17 +253,18 @@ class BoostingManager:
             self.torrents[infohash]['num_leechers'] = num_peers[1]
             self.notifier.notify(NTFY_TORRENTS, NTFY_SCRAPE, infohash)
 
-        print >> sys.stderr, 'BoostingManager: finished tracker scraping for %d torrent(s)' % num_requests
+        logger.info("Finished tracker scraping for %s torrents", num_requests)
 
-        self.tqueue.add_task(self.scrape_trackers, 1800)
+        self.tqueue.add_task(self.scrape_trackers, 300)
 
     def set_archive(self, source, enable):
         if source in self.boosting_sources:
             self.boosting_sources[source].archive = enable
-            print >> sys.stderr, 'BoostingManager: set archive mode for', source, 'to', str(enable)
+            logger.info("Set archive mode for %s to %s", source, enable)
             # TODO: update torrents
         else:
-            print >> sys.stderr, 'BoostingManager: could not set archive mode for', source
+            logger.error("Could not set archive mode for unknown source %s",
+                         source)
 
     def start_download(self, infohash, torrent):
         dscfg = DownloadStartupConfig()
@@ -250,14 +273,16 @@ class BoostingManager:
         preload = torrent.get('preload', False)
         torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=torrent.get('pstate', None), hidden=True, share_mode=not preload)
         torrent['download'].set_priority(torrent.get('prio', 1))
-        print >> sys.stderr, 'BoostingManager: downloading torrent', infohash.encode('hex'), '(preload=%s)' % preload
+        logger.info("Downloading torrent %s preload=%s",
+                    infohash.encode('hex'), preload)
 
     def stop_download(self, infohash, torrent):
         preload = torrent.pop('preload', False)
         download = torrent.pop('download')
         torrent['pstate'] = {'engineresumedata': download.handle.write_resume_data()}
         self.session.remove_download(download)
-        print >> sys.stderr, 'BoostingManager: removing torrent', infohash.encode('hex'), '(preload=%s)' % preload
+        logger.info("Removing torrent %s, preload=%s", infohash.encode('hex'),
+                    preload)
 
     def _select_torrent(self):
         torrents = {}
@@ -272,10 +297,12 @@ class BoostingManager:
 
         if self.policy and torrents:
 
-            print >> sys.stderr, 'BoostingManager: selecting from', len(torrents), 'torrents'
+            logger.info("Selecting from %s torrents", len(torrents))
 
             # Determine which torrent to start and which to stop.
             infohash_start, infohash_stop = self.policy.apply(torrents, self.max_torrents_active)
+            logger.info("Starting %s, stopping %s", infohash_start,
+                        infohash_stop)
 
             # Start a torrent.
             if infohash_start:
@@ -352,18 +379,19 @@ class ChannelSource(BoostingSource):
 
                 if allchannelcommunity:
                     self.community = ChannelCommunity.init_community(dispersy, dispersy.get_member(mid=dispersy_cid), allchannelcommunity._my_member, True)
-                    print >> sys.stderr, 'ChannelSource: joined channel community', dispersy_cid.encode("HEX")
+                    logger.info("Joined channel community %s",
+                                dispersy_cid.encode("HEX"))
                     self.tqueue.add_task(get_channel_id, 0, id=self.source)
                 else:
-                    print >> sys.stderr, 'ChannelSource: could not find AllChannelCommunity'
+                    logger.error("Could not find AllChannelCommunity")
 
         def get_channel_id():
             if self.community and self.community._channel_id:
                 self.channel_id = self.community._channel_id
                 self.tqueue.add_task(self._update, 0, id=self.source)
-                print >> sys.stderr, 'ChannelSource: got channel id', self.channel_id
+                logger.info("Got channel id %s", self.channel_id)
             else:
-                print >> sys.stderr, 'ChannelSource: could not get channel id, retrying in 10s..'
+                logger.warning("Could not get channel id, retrying in 10 s")
                 self.tqueue.add_task(get_channel_id, 10, id=self.source)
 
         join_community()
@@ -413,11 +441,12 @@ class RSSFeedSource(BoostingSource):
             if feed_status['updating']:
                 self.tqueue.add_task(wait_for_feed, 1, id=self.source)
             elif len(feed_status['error']) > 0:
-                print >> sys.stderr, 'RSSFeedSource: got error for RSS feed', feed_status['url'], '(', feed_status['error'], ')'
+                logger.error("Got error for RSS feed %s : %s",
+                             feed_status['url'], feed_status['error'])
             else:
                 # The feed is done updating. Now periodically start retrieving torrents.
                 self.tqueue.add_task(self._update, 0, id=self.source)
-                print >> sys.stderr, 'RSSFeedSource: got RSS feed', feed_status['url']
+                logger.info("Got RSS feed %s", feed_status['url'])
 
         wait_for_feed()
 
@@ -442,7 +471,8 @@ class RSSFeedSource(BoostingSource):
                             tdef = TorrentDef.load_from_dict(metainfo)
                             tdef.save(torrent_filename)
                         except:
-                            print >> sys.stderr, 'RSSFeedSource: could not get torrent, skipping', item['url']
+                            logger.error("Could not get torrent, skipping %s",
+                                         item['url'])
                             continue
                     else:
                         tdef = TorrentDef.load(torrent_filename)
@@ -466,9 +496,9 @@ class DirectorySource(BoostingSource):
     def _load(self, directory):
         if os.path.isdir(directory):
             self.tqueue.add_task(self._update, 0, id=self.source)
-            print >> sys.stderr, 'DirectorySource: got directory', directory
+            logger.info("Got directory %s", directory)
         else:
-            print >> sys.stderr, 'DirectorySource: could not find directory', directory
+            logger.error("Could not find directory %s", directory)
 
     def _update(self):
         if len(self.torrents) < self.max_torrents:
@@ -480,7 +510,8 @@ class DirectorySource(BoostingSource):
                     try:
                         tdef = TorrentDef.load(torrent_filename)
                     except:
-                        print >> sys.stderr, 'DirectorySource: could not load torrent, skipping', torrent_filename
+                        logger.error("Could not load torrent, skipping %s",
+                                     torrent_filename)
                         continue
                     # Create a torrent dict.
                     torrent_values = [tdef.get_name_as_unicode(), tdef, tdef.get_creation_date(), tdef.get_length(), len(tdef.get_files()), -1, -1]
