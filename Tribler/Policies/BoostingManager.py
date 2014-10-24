@@ -1,18 +1,20 @@
 # Written by Egbert Bouman
 
-import os
+import ConfigParser
 import glob
-import json
-import urllib
-import random
 import HTMLParser
+import json
 import logging
+import os
+import random
 import time
+import urllib
+
+from binascii import hexlify, unhexlify
+from collections import defaultdict
+from hashlib import sha1
 
 import libtorrent as lt
-
-from hashlib import sha1
-from collections import defaultdict
 
 from Tribler.Core.Libtorrent.LibtorrentMgr import LibtorrentMgr
 from Tribler.community.allchannel.community import AllChannelCommunity
@@ -33,11 +35,13 @@ formatter = logging.Formatter(
     "%(asctime)s.%(msecs).03dZ-%(levelname)s-%(message)s",
     datefmt="%Y%m%dT%H%M%S")
 formatter.converter = time.gmtime
-handler = logging.FileHandler("boosting.log")
+handler = logging.FileHandler("boosting.log", mode="w")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 number_types = (int, long, float)
+
+CONFIG_FILE = "boosting.ini"
 
 def lev(a, b):
     "Calculates the Levenshtein distance between a and b."
@@ -59,13 +63,68 @@ def lev(a, b):
 
     return current[n]
 
+class BoostingPolicy(object):
 
-class BoostingManager:
+    def __init__(self, session):
+        self.session = session
+
+    def apply(self, torrents, max_active, key, key_check):
+        eligible_and_active = {}
+        eligible_not_active = {}
+        for k, v in torrents.iteritems():
+            download = self.session.get_download(k)
+            if download and download.get_share_mode():
+                eligible_and_active[k] = v
+            elif not download:
+                eligible_not_active[k] = v
+
+        # Determine which download to start.
+        sorted_list = sorted([(key(v), k) for k, v in eligible_not_active.iteritems() if key_check(v)])
+        infohash_start = sorted_list[0][1] if sorted_list else None
+
+        # Determine which download to stop.
+        if infohash_start:
+            eligible_and_active[infohash_start] = torrents[infohash_start]
+        sorted_list = sorted([(key(v), k) for k, v in eligible_and_active.iteritems() if key_check(v)])
+        infohash_stop = sorted_list[-1][1] if sorted_list and len(eligible_and_active) > max_active else None
+
+        return (infohash_start, infohash_stop) if infohash_start != infohash_stop else (None, None)
+
+
+class RandomPolicy(BoostingPolicy):
+
+    def apply(self, torrents_eligible, torrents_active):
+        key = lambda v: random.random()
+        key_check = lambda v: True
+        return BoostingPolicy.apply(self, torrents_eligible, torrents_active, key, key_check)
+
+
+class CreationDatePolicy(BoostingPolicy):
+
+    def apply(self, torrents_eligible, torrents_active):
+        key = lambda v: v['creation_date']
+        key_check = lambda v: v['creation_date'] > 0
+        return BoostingPolicy.apply(self, torrents_eligible, torrents_active, key, key_check)
+
+
+class SeederRatioPolicy(BoostingPolicy):
+
+    def apply(self, torrents_eligible, torrents_active):
+        key = lambda v: v['num_seeders'] / float(v['num_seeders'] + v['num_leechers'])
+        key_check = lambda v: isinstance(v['num_seeders'], number_types) and isinstance(v['num_leechers'], number_types) and v['num_seeders'] + v['num_leechers'] > 0
+        return BoostingPolicy.apply(self, torrents_eligible, torrents_active, key, key_check)
+
+
+class BoostingManager(object):
 
     __single = None
 
-    def __init__(self, session, utility=None, policy=None, src_interval=20, sw_interval=20, max_per_source=100, max_active=2):
+    def __init__(self, session, utility=None, policy=SeederRatioPolicy, src_interval=20, sw_interval=20, max_per_source=100, max_active=2):
         BoostingManager.__single = self
+
+        self._saved_attributes = ["max_torrents_per_source",
+                                  "max_torrents_active", "source_interval",
+                                  "swarm_interval", "share_mode_target"]
 
         self.session = session
         self.utility = utility
@@ -77,22 +136,24 @@ class BoostingManager:
             os.mkdir(self.credit_mining_path)
 
         self.boosting_sources = {}
-
         self.torrents = {}
+        self.policy = None
+        self.share_mode_target = 3
 
         self.max_torrents_per_source = max_per_source
         self.max_torrents_active = max_active
-
         self.source_interval = src_interval
         self.swarm_interval = sw_interval
+        self.policy = policy(self.session)
 
-        self.set_share_mode_params(share_mode_target=1)
+        self.load_config()
 
-        # SeederRatioPolicy is the default policy
-        self.set_policy((policy or SeederRatioPolicy)(self.session))
-        logger.info("Using policy %s", self.policy)
+        self.set_share_mode_params(share_mode_target=self.share_mode_target)
 
-        self.load()
+        if os.path.exists(CONFIG_FILE):
+            logger.info("Config file %s", open(CONFIG_FILE).read())
+        else:
+            logger.info("Config file missing")
 
         self.tqueue.add_task(self._select_torrent, self.swarm_interval)
         self.tqueue.add_task(self.scrape_trackers, 30)
@@ -108,6 +169,8 @@ class BoostingManager:
     del_instance = staticmethod(del_instance)
 
     def shutdown(self):
+        for ihash, torrent in self.torrents.iteritems():
+            self.stop_download(ihash, torrent)
         self.tqueue.shutdown(True)
 
     def load(self):
@@ -125,13 +188,14 @@ class BoostingManager:
         if self.utility:
             try:
                 source_to_string = lambda s: s.encode('hex') if len(s) == 20 and not (os.path.isdir(s) or s.startswith('http://')) else s
-                self.utility.write_config('boosting_sources', json.dumps([source_to_string(source) for source in self.boosting_sources.keys()]))
+                self.utility.write_config(
+                    'boosting_sources',
+                    json.dumps([source_to_string(source) for
+                                source in self.boosting_sources.keys()]),
+                    flush=True)
                 logger.info("Saved sources %s", self.boosting_sources.keys())
             except:
                 logger.exception("Could not save state")
-
-    def set_policy(self, policy):
-        self.policy = policy
 
     def set_share_mode_params(self, share_mode_target=None, share_mode_bandwidth=None, share_mode_download=None, share_mode_seeders=None):
         settings = self.ltmgr.ltsession.settings()
@@ -159,7 +223,7 @@ class BoostingManager:
                 logger.error("Cannot add unknown source %s", source)
                 error = True
             if not error:
-                self.save()
+                self.save_config()
         else:
             logger.info("Already have source %s", source)
 
@@ -167,7 +231,7 @@ class BoostingManager:
         if source_key in self.boosting_sources:
             source = self.boosting_sources.pop(source_key)
             source.kill_tasks()
-            self.save()
+            self.save_config()
 
     def compare_torrents(self, t1, t2):
         ff = lambda ft: ft[1] > 1024 * 1024
@@ -260,7 +324,7 @@ class BoostingManager:
             self.torrents[infohash]['num_leechers'] = num_peers[1]
             self.notifier.notify(NTFY_TORRENTS, NTFY_SCRAPE, infohash)
 
-        logger.info("Finished tracker scraping for %s torrents", num_requests)
+        logger.debug("Finished tracker scraping for %s torrents", num_requests)
 
         self.tqueue.add_task(self.scrape_trackers, 300)
 
@@ -274,6 +338,7 @@ class BoostingManager:
                          source)
 
     def start_download(self, infohash, torrent):
+        logger.info("Starting %s", hexlify(infohash))
         dscfg = DownloadStartupConfig()
         dscfg.set_dest_dir(self.credit_mining_path)
 
@@ -284,6 +349,7 @@ class BoostingManager:
                     infohash.encode('hex'), preload)
 
     def stop_download(self, infohash, torrent):
+        logger.info("Stopping %s", hexlify(infohash))
         preload = torrent.pop('preload', False)
         download = torrent.pop('download')
         torrent['pstate'] = {'engineresumedata': download.handle.write_resume_data()}
@@ -304,12 +370,19 @@ class BoostingManager:
 
         if self.policy and torrents:
 
-            logger.info("Selecting from %s torrents", len(torrents))
+            logger.debug("Selecting from %s torrents", len(torrents))
+
+            ltmgr = LibtorrentMgr.getInstance()
+            lt_torrents = ltmgr.ltsession.get_torrents()
+            for lt_torrent in lt_torrents:
+                status = lt_torrent.status()
+                if unhexlify(str(status.info_hash)) in self.torrents:
+                    logger.debug("Status for %s : %s %s", status.info_hash,
+                                 status.all_time_download,
+                                 status.all_time_upload)
 
             # Determine which torrent to start and which to stop.
             infohash_start, infohash_stop = self.policy.apply(torrents, self.max_torrents_active)
-            logger.info("Starting %s, stopping %s", infohash_start,
-                        infohash_stop)
 
             # Start a torrent.
             if infohash_start:
@@ -326,6 +399,50 @@ class BoostingManager:
 
         self.tqueue.add_task(self._select_torrent, self.swarm_interval)
 
+    def load_config(self):
+        config = ConfigParser.ConfigParser()
+        config.read(CONFIG_FILE)
+        for k, v in config.items(__name__):
+            if k in self._saved_attributes:
+                object.__setattr__(self, k, int(v))
+            elif k == "policy":
+                if v == "random":
+                    self.policy = RandomPolicy(self.session)
+                elif v == "creation":
+                    self.policy = CreationDatePolicy(self.session)
+                elif v == "seederratio":
+                    self.policy = SeederRatioPolicy(self.session)
+            elif k == "boosting_sources":
+                for boosting_source in json.loads(v):
+                    self.add_source(boosting_source)
+            elif k == "archive_sources":
+                for archive_source in json.loads(v):
+                    self.set_archive(archive_source, True)
+
+    def save_config(self):
+        config = ConfigParser.ConfigParser()
+        config.add_section(__name__)
+        for k in self._saved_attributes:
+            config.set(__name__, k, BoostingManager.__getattribute__(self, k))
+        config.set(__name__, "boosting_sources",
+                   json.dumps(self.boosting_sources.keys()))
+        archive_sources = []
+        for boosting_source_name, boosting_source in \
+                self.boosting_sources.iteritems():
+            if boosting_source.archive:
+                archive_sources.append(boosting_source_name)
+        if archive_sources:
+            config.set(__name__, "archive_sources",
+                       json.dumps(archive_sources))
+        if isinstance(self.policy, RandomPolicy):
+            policy = "random"
+        elif isinstance(self.policy, CreationDatePolicy):
+            policy = "creation"
+        elif isinstance(self.policy, SeederRatioPolicy):
+            policy = "seederratio"
+        config.set(__name__, "policy", policy)
+        with open(CONFIG_FILE, "w") as configf:
+            config.write(configf)
 
 class BoostingSource:
 
@@ -528,55 +645,3 @@ class DirectorySource(BoostingSource):
                         self.callback(self.source, tdef.get_infohash(), self.torrents[torrent_filename])
 
             self.tqueue.add_task(self._update, self.interval, id=self.source)
-
-
-class BoostingPolicy:
-
-    def __init__(self, session):
-        self.session = session
-
-    def apply(self, torrents, max_active, key, key_check):
-        eligible_and_active = {}
-        eligible_not_active = {}
-        for k, v in torrents.iteritems():
-            download = self.session.get_download(k)
-            if download and download.get_share_mode():
-                eligible_and_active[k] = v
-            elif not download:
-                eligible_not_active[k] = v
-
-        # Determine which download to start.
-        sorted_list = sorted([(key(v), k) for k, v in eligible_not_active.iteritems() if key_check(v)])
-        infohash_start = sorted_list[0][1] if sorted_list else None
-
-        # Determine which download to stop.
-        if infohash_start:
-            eligible_and_active[infohash_start] = torrents[infohash_start]
-        sorted_list = sorted([(key(v), k) for k, v in eligible_and_active.iteritems() if key_check(v)])
-        infohash_stop = sorted_list[-1][1] if sorted_list and len(eligible_and_active) > max_active else None
-
-        return (infohash_start, infohash_stop) if infohash_start != infohash_stop else (None, None)
-
-
-class RandomPolicy(BoostingPolicy):
-
-    def apply(self, torrents_eligible, torrents_active):
-        key = lambda v: random.random()
-        key_check = lambda v: True
-        return BoostingPolicy.apply(self, torrents_eligible, torrents_active, key, key_check)
-
-
-class CreationDatePolicy(BoostingPolicy):
-
-    def apply(self, torrents_eligible, torrents_active):
-        key = lambda v: v['creation_date']
-        key_check = lambda v: v['creation_date'] > 0
-        return BoostingPolicy.apply(self, torrents_eligible, torrents_active, key, key_check)
-
-
-class SeederRatioPolicy(BoostingPolicy):
-
-    def apply(self, torrents_eligible, torrents_active):
-        key = lambda v: v['num_seeders'] / float(v['num_seeders'] + v['num_leechers'])
-        key_check = lambda v: isinstance(v['num_seeders'], number_types) and isinstance(v['num_leechers'], number_types) and v['num_seeders'] + v['num_leechers'] > 0
-        return BoostingPolicy.apply(self, torrents_eligible, torrents_active, key, key_check)
