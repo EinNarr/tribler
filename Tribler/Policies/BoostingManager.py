@@ -124,7 +124,8 @@ class BoostingManager(object):
 
         self._saved_attributes = ["max_torrents_per_source",
                                   "max_torrents_active", "source_interval",
-                                  "swarm_interval", "share_mode_target"]
+                                  "swarm_interval", "share_mode_target",
+                                  "tracker_interval"]
 
         self.session = session
         self.utility = utility
@@ -144,7 +145,10 @@ class BoostingManager(object):
         self.max_torrents_active = max_active
         self.source_interval = src_interval
         self.swarm_interval = sw_interval
+        self.initial_swarm_interval = 60
         self.policy = policy(self.session)
+        self.tracker_interval = 300
+        self.initial_tracker_interval = 30
 
         self.load_config()
 
@@ -155,8 +159,9 @@ class BoostingManager(object):
         else:
             logger.info("Config file missing")
 
-        self.tqueue.add_task(self._select_torrent, self.swarm_interval)
-        self.tqueue.add_task(self.scrape_trackers, 30)
+        self.tqueue.add_task(self._select_torrent, self.initial_swarm_interval)
+        self.tqueue.add_task(self.scrape_trackers,
+                             self.initial_tracker_interval)
 
     def get_instance(*args, **kw):
         if BoostingManager.__single is None:
@@ -326,7 +331,7 @@ class BoostingManager(object):
 
         logger.debug("Finished tracker scraping for %s torrents", num_requests)
 
-        self.tqueue.add_task(self.scrape_trackers, 300)
+        self.tqueue.add_task(self.scrape_trackers, self.tracker_interval)
 
     def set_archive(self, source, enable):
         if source in self.boosting_sources:
