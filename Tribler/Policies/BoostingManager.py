@@ -1,4 +1,8 @@
-# Written by Egbert Bouman
+# -*- coding: utf-8 -*-
+# Written by Egbert Bouman, Mihai Capotă
+# pylint: disable=too-few-public-methods, too-many-instance-attributes
+# pylint: disable=too-many-arguments, too-many-branches
+"""Manage boosting of swarms"""
 
 import ConfigParser
 import glob
@@ -67,52 +71,48 @@ class BoostingPolicy(object):
 
     def __init__(self, session):
         self.session = session
+        self.key = lambda x: None
+        # function that checks if key can be applied to torrent
+        self.key_check = lambda x: None
 
-    def apply(self, torrents, max_active, key, key_check):
-        eligible_and_active = {}
-        eligible_not_active = {}
-        for k, v in torrents.iteritems():
-            download = self.session.get_download(k)
-            if download and download.get_share_mode():
-                eligible_and_active[k] = v
-            elif not download:
-                eligible_not_active[k] = v
-
-        # Determine which download to start.
-        sorted_list = sorted([(key(v), k) for k, v in eligible_not_active.iteritems() if key_check(v)])
-        infohash_start = sorted_list[0][1] if sorted_list else None
-
-        # Determine which download to stop.
-        if infohash_start:
-            eligible_and_active[infohash_start] = torrents[infohash_start]
-        sorted_list = sorted([(key(v), k) for k, v in eligible_and_active.iteritems() if key_check(v)])
-        infohash_stop = sorted_list[-1][1] if sorted_list and len(eligible_and_active) > max_active else None
-
-        return (infohash_start, infohash_stop) if infohash_start != infohash_stop else (None, None)
+    def apply(self, torrents, max_active):
+        sorted_torrents = sorted([torrent for torrent in torrents.itervalues()
+                                  if self.key_check(torrent)],
+                                 key=self.key)
+        torrents_start = []
+        for torrent in sorted_torrents[:max_active]:
+            if not self.session.get_download(torrent["metainfo"].get_id()):
+                torrents_start.append(torrent)
+        torrents_stop = []
+        for torrent in sorted_torrents[max_active:]:
+            if self.session.get_download(torrent["metainfo"].get_id()):
+                torrents_stop.append(torrent)
+        return (torrents_start, torrents_stop)
 
 
 class RandomPolicy(BoostingPolicy):
 
-    def apply(self, torrents_eligible, torrents_active):
-        key = lambda v: random.random()
-        key_check = lambda v: True
-        return BoostingPolicy.apply(self, torrents_eligible, torrents_active, key, key_check)
+    def __init__(self, session):
+        BoostingPolicy.__init__(self, session)
+        self.key = lambda v: random.random()
+        self.key_check = lambda v: True
 
 
 class CreationDatePolicy(BoostingPolicy):
 
-    def apply(self, torrents_eligible, torrents_active):
-        key = lambda v: v['creation_date']
-        key_check = lambda v: v['creation_date'] > 0
-        return BoostingPolicy.apply(self, torrents_eligible, torrents_active, key, key_check)
+    def __init__(self, session):
+        BoostingPolicy.__init__(self, session)
+        self.key = lambda v: v['creation_date']
+        self.key_check = lambda v: v['creation_date'] > 0
 
 
 class SeederRatioPolicy(BoostingPolicy):
 
-    def apply(self, torrents_eligible, torrents_active):
-        key = lambda v: v['num_seeders'] / float(v['num_seeders'] + v['num_leechers'])
-        key_check = lambda v: isinstance(v['num_seeders'], number_types) and isinstance(v['num_leechers'], number_types) and v['num_seeders'] + v['num_leechers'] > 0
-        return BoostingPolicy.apply(self, torrents_eligible, torrents_active, key, key_check)
+    def __init__(self, session):
+        BoostingPolicy.__init__(self, session)
+        self.key = lambda v: v['num_seeders'] / float(v['num_seeders'] +
+                                                      v['num_leechers'])
+        self.key_check = lambda v: isinstance(v['num_seeders'], number_types) and isinstance(v['num_leechers'], number_types) and v['num_seeders'] + v['num_leechers'] > 0
 
 
 class BoostingManager(object):
@@ -125,7 +125,7 @@ class BoostingManager(object):
         self._saved_attributes = ["max_torrents_per_source",
                                   "max_torrents_active", "source_interval",
                                   "swarm_interval", "share_mode_target",
-                                  "tracker_interval"]
+                                  "tracker_interval", "logging_interval"]
 
         self.session = session
         self.utility = utility
@@ -149,6 +149,7 @@ class BoostingManager(object):
         self.policy = policy(self.session)
         self.tracker_interval = 300
         self.initial_tracker_interval = 30
+        self.logging_interval = 60
 
         self.load_config()
 
@@ -162,6 +163,7 @@ class BoostingManager(object):
         self.tqueue.add_task(self._select_torrent, self.initial_swarm_interval)
         self.tqueue.add_task(self.scrape_trackers,
                              self.initial_tracker_interval)
+        self.tqueue.add_task(self.log_statistics, self.logging_interval)
 
     def get_instance(*args, **kw):
         if BoostingManager.__single is None:
@@ -169,13 +171,16 @@ class BoostingManager(object):
         return BoostingManager.__single
     get_instance = staticmethod(get_instance)
 
-    def del_instance(*args, **kw):
+    def del_instance():
         BoostingManager.__single = None
     del_instance = staticmethod(del_instance)
 
     def shutdown(self):
-        for ihash, torrent in self.torrents.iteritems():
-            self.stop_download(ihash, torrent)
+        for torrent in self.torrents.itervalues():
+            try:
+                self.stop_download(torrent)
+            except:
+                continue
         self.tqueue.shutdown(True)
 
     def load(self):
@@ -218,6 +223,7 @@ class BoostingManager(object):
         if source not in self.boosting_sources:
             error = False
             args = (self.session, self.tqueue, source, self.source_interval, self.max_torrents_per_source, self.on_torrent_insert)
+            #pylint: disable=star-args
             if os.path.isdir(source):
                 self.boosting_sources[source] = DirectorySource(*args)
             elif source.startswith('http://'):
@@ -239,6 +245,7 @@ class BoostingManager(object):
             self.save_config()
 
     def compare_torrents(self, t1, t2):
+        #pylint: disable=no-self-use, bad-builtin
         ff = lambda ft: ft[1] > 1024 * 1024
         files1 = filter(ff, t1['metainfo'].get_files_with_length())
         files2 = filter(ff, t2['metainfo'].get_files_with_length())
@@ -277,11 +284,11 @@ class BoostingManager(object):
         if duplicates:
             duplicates += [torrent]
             healthiest_torrent = max([(torrent['num_seeders'], torrent) for torrent in duplicates])[1]
-            for torrent in duplicates:
-                is_duplicate = healthiest_torrent != torrent
-                torrent['is_duplicate'] = is_duplicate
-                if is_duplicate and torrent.get('download', None):
-                    self.stop_download(torrent['metainfo'].get_id(), torrent)
+            for duplicate in duplicates:
+                is_duplicate = healthiest_torrent != duplicate
+                duplicate['is_duplicate'] = is_duplicate
+                if is_duplicate and duplicate.get('download', None):
+                    self.stop_download(duplicate)
 
         self.torrents[infohash] = torrent
         logger.info("Got new torrent %s from %s", infohash.encode('hex'),
@@ -337,39 +344,37 @@ class BoostingManager(object):
         if source in self.boosting_sources:
             self.boosting_sources[source].archive = enable
             logger.info("Set archive mode for %s to %s", source, enable)
-            # TODO: update torrents
         else:
             logger.error("Could not set archive mode for unknown source %s",
                          source)
 
-    def start_download(self, infohash, torrent):
-        logger.info("Starting %s", hexlify(infohash))
+    def start_download(self, torrent):
         dscfg = DownloadStartupConfig()
         dscfg.set_dest_dir(self.credit_mining_path)
 
         preload = torrent.get('preload', False)
+        logger.info("Starting %s preload %s",
+                    hexlify(torrent["metainfo"].get_id()), preload)
         torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=torrent.get('pstate', None), hidden=True, share_mode=not preload)
         torrent['download'].set_priority(torrent.get('prio', 1))
-        logger.info("Downloading torrent %s preload=%s",
-                    infohash.encode('hex'), preload)
 
-    def stop_download(self, infohash, torrent):
-        logger.info("Stopping %s", hexlify(infohash))
-        preload = torrent.pop('preload', False)
-        download = torrent.pop('download')
-        torrent['pstate'] = {'engineresumedata': download.handle.write_resume_data()}
-        self.session.remove_download(download)
-        logger.info("Removing torrent %s, preload=%s", infohash.encode('hex'),
-                    preload)
+    def stop_download(self, torrent):
+        logger.info("Stopping %s", hexlify(torrent["metainfo"].get_id()))
+        dummy_preload = torrent.pop('preload', False)
+        download = torrent.pop('download', False)
+        if download:
+            torrent['pstate'] = {'engineresumedata':
+                                 download.handle.write_resume_data()}
+            self.session.remove_download(download)
 
     def _select_torrent(self):
         torrents = {}
         for infohash, torrent in self.torrents.iteritems():
             if torrent.get('preload', False):
                 if not torrent.has_key('download'):
-                    self.start_download(infohash, torrent)
+                    self.start_download(torrent)
                 elif torrent['download'].get_status() == DLSTATUS_SEEDING:
-                    self.stop_download(infohash, torrent)
+                    self.stop_download(torrent)
             elif not torrent.get('is_duplicate', False):
                 torrents[infohash] = torrent
 
@@ -377,30 +382,13 @@ class BoostingManager(object):
 
             logger.debug("Selecting from %s torrents", len(torrents))
 
-            ltmgr = LibtorrentMgr.getInstance()
-            lt_torrents = ltmgr.ltsession.get_torrents()
-            for lt_torrent in lt_torrents:
-                status = lt_torrent.status()
-                if unhexlify(str(status.info_hash)) in self.torrents:
-                    logger.debug("Status for %s : %s %s", status.info_hash,
-                                 status.all_time_download,
-                                 status.all_time_upload)
-
             # Determine which torrent to start and which to stop.
-            infohash_start, infohash_stop = self.policy.apply(torrents, self.max_torrents_active)
+            torrents_start, torrents_stop = self.policy.apply(torrents, self.max_torrents_active)
+            for torrent in torrents_stop:
+                self.stop_download(torrent)
+            for torrent in torrents_start:
+                self.start_download(torrent)
 
-            # Start a torrent.
-            if infohash_start:
-                torrent = torrents[infohash_start]
-
-                # Add the download to libtorrent.
-                self.start_download(infohash_start, torrent)
-
-            # Stop a torrent.
-            if infohash_stop:
-                torrent = torrents[infohash_stop]
-
-                self.stop_download(infohash_stop, torrent)
 
         self.tqueue.add_task(self._select_torrent, self.swarm_interval)
 
@@ -449,7 +437,22 @@ class BoostingManager(object):
         with open(CONFIG_FILE, "w") as configf:
             config.write(configf)
 
-class BoostingSource:
+    def log_statistics(self):
+        """Log transfer statistics"""
+        ltmgr = LibtorrentMgr.getInstance()
+        lt_torrents = ltmgr.ltsession.get_torrents()
+        for lt_torrent in lt_torrents:
+            status = lt_torrent.status()
+            if unhexlify(str(status.info_hash)) in self.torrents:
+                logger.debug("Status for %s : %s %s", status.info_hash,
+                             status.all_time_download,
+                             status.all_time_upload)
+                logger.debug("Share mode for %s : %s", status.info_hash,
+                             status.share_mode)
+        self.tqueue.add_task(self.log_statistics, self.logging_interval)
+
+
+class BoostingSource(object):
 
     def __init__(self, session, tqueue, source, interval, max_torrents, callback):
         self.session = session
@@ -476,6 +479,8 @@ class ChannelSource(BoostingSource):
 
     def __init__(self, session, tqueue, dispersy_cid, interval, max_torrents, callback):
         BoostingSource.__init__(self, session, tqueue, dispersy_cid, interval, max_torrents, callback)
+
+        self.channel_id = None
 
         self.channelcast_db = self.session.lm.channelcast_db
 
@@ -507,6 +512,7 @@ class ChannelSource(BoostingSource):
                         break
 
                 if allchannelcommunity:
+                    #pylint: disable=protected-access
                     self.community = ChannelCommunity.init_community(dispersy, dispersy.get_member(mid=dispersy_cid), allchannelcommunity._my_member, True)
                     logger.info("Joined channel community %s",
                                 dispersy_cid.encode("HEX"))
@@ -515,6 +521,7 @@ class ChannelSource(BoostingSource):
                     logger.error("Could not find AllChannelCommunity")
 
         def get_channel_id():
+            #pylint: disable=protected-access
             if self.community and self.community._channel_id:
                 self.channel_id = self.community._channel_id
                 self.tqueue.add_task(self._update, 0, id=self.source)
@@ -546,6 +553,9 @@ class ChannelSource(BoostingSource):
             self.tqueue.add_task(self._update, self.interval, id=self.source)
 
     def _on_database_updated(self, subject, change_type, infohash):
+        if (subject, change_type, infohash) is None:
+            # Unused arguments
+            pass
         self.database_updated = True
 
 
