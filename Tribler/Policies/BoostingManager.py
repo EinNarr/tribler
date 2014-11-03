@@ -447,8 +447,6 @@ class BoostingManager(object):
                 logger.debug("Status for %s : %s %s", status.info_hash,
                              status.all_time_download,
                              status.all_time_upload)
-                logger.debug("Share mode for %s : %s", status.info_hash,
-                             status.share_mode)
         self.tqueue.add_task(self.log_statistics, self.logging_interval)
 
 
