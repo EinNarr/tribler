@@ -373,6 +373,10 @@ class LibtorrentDownloadImpl(DownloadConfigInterface):
             return self.vod_index
         return -1
 
+    @checkHandleAndSynchronize(None)
+    def write_resume_data(self):
+        return self.handle.write_resume_data()
+
     @checkHandleAndSynchronize(0)
     def get_vod_filesize(self):
         fileindex = self.get_vod_fileindex()

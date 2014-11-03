@@ -364,7 +364,7 @@ class BoostingManager(object):
         download = torrent.pop('download', False)
         if download:
             torrent['pstate'] = {'engineresumedata':
-                                 download.handle.write_resume_data()}
+                                 download.write_resume_data()}
             self.session.remove_download(download)
 
     def _select_torrent(self):
