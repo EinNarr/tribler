@@ -223,7 +223,6 @@ class BoostingManager(object):
 
     def add_source(self, source):
         if source not in self.boosting_sources:
-            error = False
             args = (self.session, self.tqueue, source, self.source_interval, self.max_torrents_per_source, self.on_torrent_insert)
             #pylint: disable=star-args
             if os.path.isdir(source):
@@ -234,9 +233,6 @@ class BoostingManager(object):
                 self.boosting_sources[source] = ChannelSource(*args)
             else:
                 logger.error("Cannot add unknown source %s", source)
-                error = True
-            if not error:
-                self.save_config()
         else:
             logger.info("Already have source %s", source)
 
@@ -244,7 +240,6 @@ class BoostingManager(object):
         if source_key in self.boosting_sources:
             source = self.boosting_sources.pop(source_key)
             source.kill_tasks()
-            self.save_config()
 
     def compare_torrents(self, t1, t2):
         #pylint: disable=no-self-use, bad-builtin
