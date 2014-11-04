@@ -145,11 +145,12 @@ class BoostingManager(object):
         self.max_torrents_active = max_active
         self.source_interval = src_interval
         self.swarm_interval = sw_interval
-        self.initial_swarm_interval = 60
+        self.initial_swarm_interval = 30
         self.policy = policy(self.session)
         self.tracker_interval = 300
-        self.initial_tracker_interval = 30
+        self.initial_tracker_interval = 25
         self.logging_interval = 60
+        self.initial_logging_interval = 35
 
         self.load_config()
 
@@ -163,7 +164,8 @@ class BoostingManager(object):
         self.tqueue.add_task(self._select_torrent, self.initial_swarm_interval)
         self.tqueue.add_task(self.scrape_trackers,
                              self.initial_tracker_interval)
-        self.tqueue.add_task(self.log_statistics, self.logging_interval)
+        self.tqueue.add_task(self.log_statistics,
+                             self.initial_logging_interval)
 
     def get_instance(*args, **kw):
         if BoostingManager.__single is None:
@@ -355,8 +357,17 @@ class BoostingManager(object):
         preload = torrent.get('preload', False)
         logger.info("Starting %s preload %s",
                     hexlify(torrent["metainfo"].get_id()), preload)
-        torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=torrent.get('pstate', None), hidden=True, share_mode=not preload)
+        torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=torrent.get('pstate', None), hidden=True)
         torrent['download'].set_priority(torrent.get('prio', 1))
+        ihash = lt.big_number(torrent["metainfo"].get_id())
+        while True:
+            lt_torrent = LibtorrentMgr.getInstance().ltsession.find_torrent(
+                    ihash)
+            logger.debug("%s is valid %s", str(ihash), lt_torrent.is_valid())
+            if lt_torrent.is_valid():
+                break
+            time.sleep(0.05)
+        lt_torrent.set_share_mode(not preload)
 
     def stop_download(self, torrent):
         logger.info("Stopping %s", hexlify(torrent["metainfo"].get_id()))
