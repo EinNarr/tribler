@@ -23,7 +23,7 @@ class TimedTaskQueue:
     __single = None
 
     def __init__(self, nameprefix="TimedTaskQueue", isDaemon=True):
-        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger = logging.getLogger(self.__class__.__name__+nameprefix)
 
         self.cond = Condition(RLock())
         self.queue = []

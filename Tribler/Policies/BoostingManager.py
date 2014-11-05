@@ -43,6 +43,9 @@ handler = logging.FileHandler("boosting.log", mode="w")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+logging.getLogger(TimedTaskQueue.__name__+"BoostingManager").setLevel(
+            logging.DEBUG)
+
 number_types = (int, long, float)
 
 CONFIG_FILE = "boosting.ini"
@@ -346,6 +349,7 @@ class BoostingManager(object):
                          source)
 
     def start_download(self, torrent):
+        logger.debug("Starting")
         dscfg = DownloadStartupConfig()
         dscfg.set_dest_dir(self.credit_mining_path)
 
@@ -365,12 +369,15 @@ class BoostingManager(object):
         lt_torrent.set_share_mode(not preload)
 
     def stop_download(self, torrent):
-        logger.info("Stopping %s", hexlify(torrent["metainfo"].get_id()))
-        dummy_preload = torrent.pop('preload', False)
+        ihash = lt.big_number(torrent["metainfo"].get_id())
+        logger.info("Stopping %s", hexlify(ihash))
         download = torrent.pop('download', False)
-        if download:
+        lt_torrent = LibtorrentMgr.getInstance().ltsession.find_torrent(ihash)
+        if download and lt_torrent.is_valid():
+            logger.debug("Writing resume data")
             torrent['pstate'] = {'engineresumedata':
                                  download.write_resume_data()}
+            logger.debug("Removing download")
             self.session.remove_download(download)
 
     def _select_torrent(self):
@@ -392,6 +399,7 @@ class BoostingManager(object):
             torrents_start, torrents_stop = self.policy.apply(torrents, self.max_torrents_active)
             for torrent in torrents_stop:
                 self.stop_download(torrent)
+            logger.debug("Done stopping")
             for torrent in torrents_start:
                 self.start_download(torrent)
 
