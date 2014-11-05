@@ -47,6 +47,8 @@ class TorrentStateManager(object):
 
     def torrentFinished(self, infohash):
         torrent = self.torrent_manager.getTorrentByInfohash(infohash)
+        if torrent is None:
+            return
 
         self.library_manager.addDownloadState(torrent)
         torrent = self.torrent_manager.loadTorrent(torrent)
