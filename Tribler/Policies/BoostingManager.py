@@ -349,7 +349,6 @@ class BoostingManager(object):
                          source)
 
     def start_download(self, torrent):
-        logger.debug("Starting")
         dscfg = DownloadStartupConfig()
         dscfg.set_dest_dir(self.credit_mining_path)
 
@@ -377,7 +376,6 @@ class BoostingManager(object):
             logger.debug("Writing resume data")
             torrent['pstate'] = {'engineresumedata':
                                  download.write_resume_data()}
-            logger.debug("Removing download")
             self.session.remove_download(download)
 
     def _select_torrent(self):
