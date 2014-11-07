@@ -388,7 +388,7 @@ class BoostingManager(object):
             elif not torrent.get('is_duplicate', False):
                 torrents[infohash] = torrent
 
-        if self.policy and torrents:
+        if self.policy is not None and torrents:
 
             logger.debug("Selecting from %s torrents", len(torrents))
 
