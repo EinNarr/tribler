@@ -359,8 +359,7 @@ class BoostingManager(object):
         torrent['download'].set_priority(torrent.get('prio', 1))
         ihash = lt.big_number(torrent["metainfo"].get_id())
         while True:
-            lt_torrent = LibtorrentMgr.getInstance().ltsession.find_torrent(
-                    ihash)
+            lt_torrent = self.ltmgr.ltsession.find_torrent(ihash)
             logger.debug("%s is valid %s", str(ihash), lt_torrent.is_valid())
             if lt_torrent.is_valid():
                 break
@@ -371,7 +370,7 @@ class BoostingManager(object):
         ihash = lt.big_number(torrent["metainfo"].get_id())
         logger.info("Stopping %s", str(ihash))
         download = torrent.pop('download', False)
-        lt_torrent = LibtorrentMgr.getInstance().ltsession.find_torrent(ihash)
+        lt_torrent = self.ltmgr.ltsession.find_torrent(ihash)
         if download and lt_torrent.is_valid():
             logger.debug("Writing resume data")
             torrent['pstate'] = {'engineresumedata':
@@ -450,8 +449,7 @@ class BoostingManager(object):
 
     def log_statistics(self):
         """Log transfer statistics"""
-        ltmgr = LibtorrentMgr.getInstance()
-        lt_torrents = ltmgr.ltsession.get_torrents()
+        lt_torrents = self.ltmgr.ltsession.get_torrents()
         for lt_torrent in lt_torrents:
             status = lt_torrent.status()
             if unhexlify(str(status.info_hash)) in self.torrents:
