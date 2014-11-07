@@ -369,7 +369,7 @@ class BoostingManager(object):
 
     def stop_download(self, torrent):
         ihash = lt.big_number(torrent["metainfo"].get_id())
-        logger.info("Stopping %s", hexlify(ihash))
+        logger.info("Stopping %s", str(ihash))
         download = torrent.pop('download', False)
         lt_torrent = LibtorrentMgr.getInstance().ltsession.find_torrent(ihash)
         if download and lt_torrent.is_valid():
@@ -394,13 +394,12 @@ class BoostingManager(object):
             logger.debug("Selecting from %s torrents", len(torrents))
 
             # Determine which torrent to start and which to stop.
-            torrents_start, torrents_stop = self.policy.apply(torrents, self.max_torrents_active)
+            torrents_start, torrents_stop = self.policy.apply(
+                    torrents, self.max_torrents_active)
             for torrent in torrents_stop:
                 self.stop_download(torrent)
-            logger.debug("Done stopping")
             for torrent in torrents_start:
                 self.start_download(torrent)
-
 
         self.tqueue.add_task(self._select_torrent, self.swarm_interval)
 
@@ -644,7 +643,9 @@ class DirectorySource(BoostingSource):
 
     def _load(self, directory):
         if os.path.isdir(directory):
-            self.tqueue.add_task(self._update, 0, id=self.source)
+            # Wait for __init__ to finish so the source is registered with the
+            # BoostinManager, otherwise adding torrents won't work
+            self.tqueue.add_task(self._update, 1, id=self.source)
             logger.info("Got directory %s", directory)
         else:
             logger.error("Could not find directory %s", directory)
