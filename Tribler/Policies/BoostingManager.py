@@ -43,8 +43,8 @@ handler = logging.FileHandler("boosting.log", mode="w")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-logging.getLogger(TimedTaskQueue.__name__+"BoostingManager").setLevel(
-            logging.DEBUG)
+#logging.getLogger(TimedTaskQueue.__name__+"BoostingManager").setLevel(
+#            logging.DEBUG)
 
 number_types = (int, long, float)
 
@@ -355,26 +355,10 @@ class BoostingManager(object):
         preload = torrent.get('preload', False)
         logger.info("Starting %s preload %s",
                     hexlify(torrent["metainfo"].get_id()), preload)
-        torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=torrent.get('pstate', None), hidden=True)
+        torrent['download'] = self.session.lm.add(
+                torrent['metainfo'], dscfg, pstate=torrent.get('pstate', None),
+                hidden=True, share_mode=not preload)
         torrent['download'].set_priority(torrent.get('prio', 1))
-        ihash = lt.big_number(torrent["metainfo"].get_id())
-        if preload:
-            return
-        while True:
-            lt_torrent = self.ltmgr.ltsession.find_torrent(ihash)
-            logger.debug("%s is valid %s", str(ihash), lt_torrent.is_valid())
-            if lt_torrent.is_valid():
-                lt_torrent.set_share_mode(False)
-                lt_torrent.set_share_mode(True)
-                non_zeroes = True
-                for piece_priority in lt_torrent.piece_priorities():
-                    if piece_priority != 0:
-                        non_zeroes = False
-                        logger.debug("%s non-zero priorities")
-                        break
-                if non_zeroes:
-                    break
-            time.sleep(0.05)
 
     def stop_download(self, torrent):
         ihash = lt.big_number(torrent["metainfo"].get_id())

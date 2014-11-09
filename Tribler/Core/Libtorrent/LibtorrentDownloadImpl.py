@@ -321,6 +321,13 @@ class LibtorrentDownloadImpl(DownloadConfigInterface):
         if self.handle:
             self.set_selected_files()
 
+            # set_selected_files sets priorities to 1, so we must set
+            # share_mode again, but first we must unset it, otherwise
+            # set_share_mode doesn't do anything
+            if share_mode:
+                self.handle.set_share_mode(not share_mode)
+                self.handle.set_share_mode(share_mode)
+
             # If we lost resume_data always resume download in order to force checking
             if initialdlstatus != DLSTATUS_STOPPED or not resume_data:
                 self.handle.resume()
@@ -1079,9 +1086,9 @@ class LibtorrentDownloadImpl(DownloadConfigInterface):
         if self.handle:
             return self.handle.status().share_mode
 
+    @checkHandleAndSynchronize
     def set_share_mode(self, share_mode):
-        if self.handle:
-            self.handle.set_share_mode(share_mode)
+        self.handle.set_share_mode(share_mode)
 
 
 class LibtorrentStatisticsResponse:
