@@ -77,11 +77,12 @@ class BoostingPolicy(object):
         self.key = lambda x: None
         # function that checks if key can be applied to torrent
         self.key_check = lambda x: None
+        self.reverse = None
 
     def apply(self, torrents, max_active):
         sorted_torrents = sorted([torrent for torrent in torrents.itervalues()
                                   if self.key_check(torrent)],
-                                 key=self.key)
+                                 key=self.key, reverse=self.reverse)
         torrents_start = []
         for torrent in sorted_torrents[:max_active]:
             if not self.session.get_download(torrent["metainfo"].get_id()):
@@ -99,6 +100,7 @@ class RandomPolicy(BoostingPolicy):
         BoostingPolicy.__init__(self, session)
         self.key = lambda v: random.random()
         self.key_check = lambda v: True
+        self.reverse = False
 
 
 class CreationDatePolicy(BoostingPolicy):
@@ -107,6 +109,7 @@ class CreationDatePolicy(BoostingPolicy):
         BoostingPolicy.__init__(self, session)
         self.key = lambda v: v['creation_date']
         self.key_check = lambda v: v['creation_date'] > 0
+        self.reverse = True
 
 
 class SeederRatioPolicy(BoostingPolicy):
@@ -116,6 +119,7 @@ class SeederRatioPolicy(BoostingPolicy):
         self.key = lambda v: v['num_seeders'] / float(v['num_seeders'] +
                                                       v['num_leechers'])
         self.key_check = lambda v: isinstance(v['num_seeders'], number_types) and isinstance(v['num_leechers'], number_types) and v['num_seeders'] + v['num_leechers'] > 0
+        self.reverse = False
 
 
 class BoostingManager(object):

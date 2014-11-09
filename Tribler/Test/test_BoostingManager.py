@@ -20,11 +20,11 @@ class TestBoostingManagerPolicies(unittest.TestCase):
             mock_metainfo = mock.Mock()
             mock_metainfo.get_id.return_value = i
             self.torrents[i] = {"metainfo": mock_metainfo, "num_seeders": i,
-                                "num_leechers": i-1}
+                                "num_leechers": i-1, "creation_date": i}
 
     def test_RandomPolicy(self):
-        rp = bm.RandomPolicy(self.session)
-        torrents_start, torrents_stop = rp.apply(self.torrents, 2)
+        policy = bm.RandomPolicy(self.session)
+        torrents_start, torrents_stop = policy.apply(self.torrents, 2)
         ids_start = [torrent["metainfo"].get_id() for torrent in
                      torrents_start]
         self.assertEqual(ids_start, [4, 8])
@@ -32,13 +32,22 @@ class TestBoostingManagerPolicies(unittest.TestCase):
         self.assertEqual(ids_stop, [3, 9, 5, 7, 1])
 
     def test_SeederRatioPolicy(self):
-        sp = bm.SeederRatioPolicy(self.session)
-        torrents_start, torrents_stop = sp.apply(self.torrents, 6)
+        policy = bm.SeederRatioPolicy(self.session)
+        torrents_start, torrents_stop = policy.apply(self.torrents, 6)
         ids_start = [torrent["metainfo"].get_id() for torrent in
                      torrents_start]
         self.assertEqual(ids_start, [10, 8, 6])
         ids_stop = [torrent["metainfo"].get_id() for torrent in torrents_stop]
         self.assertEqual(ids_stop, [3, 1])
+
+    def test_CreationDatePolicy(self):
+        policy = bm.CreationDatePolicy(self.session)
+        torrents_start, torrents_stop = policy.apply(self.torrents, 5)
+        ids_start = [torrent["metainfo"].get_id() for torrent in
+                     torrents_start]
+        self.assertEqual(ids_start, [10, 8, 6])
+        ids_stop = [torrent["metainfo"].get_id() for torrent in torrents_stop]
+        self.assertEqual(ids_stop, [5, 3, 1])
 
 if __name__ == "__main__":
     unittest.main()
