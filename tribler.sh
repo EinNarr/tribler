@@ -4,6 +4,8 @@
 
 UNAME=$(uname -s)
 
+ulimit -c unlimited
+
 if [ $UNAME == "Linux" ]; then
     # Find the Tribler dir
     TRIBLER_DIR=$( dirname $(readlink -f "$0"))
