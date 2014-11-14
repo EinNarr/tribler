@@ -184,12 +184,14 @@ class LibtorrentMgr:
 
     def set_upload_rate_limit(self, rate):
         self.ltsession.set_upload_rate_limit(int(rate))
+        self.ltsession.set_local_upload_rate_limit(int(rate))
 
     def get_upload_rate_limit(self):
         return self.ltsession.upload_rate_limit()
 
     def set_download_rate_limit(self, rate):
         self.ltsession.set_download_rate_limit(int(rate))
+        self.ltsession.set_local_download_rate_limit(int(rate))
 
     def get_download_rate_limit(self):
         return self.ltsession.download_rate_limit()
