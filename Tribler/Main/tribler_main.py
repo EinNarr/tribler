@@ -248,9 +248,11 @@ class ABCApp():
             self.lastwantpeers = []
 
             maxup = self.utility.read_config('maxuploadrate')
+            maxup = 6103
             self.ratelimiter.set_global_max_speed(UPLOAD, maxup)
 
             maxdown = self.utility.read_config('maxdownloadrate')
+            maxdown = 6103
             self.ratelimiter.set_global_max_speed(DOWNLOAD, maxdown)
 
             self.seedingmanager = GlobalSeedingManager(self.utility.read_config)
