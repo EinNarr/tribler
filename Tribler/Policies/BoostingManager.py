@@ -594,6 +594,10 @@ class RSSFeedSource(BoostingSource):
             elif len(feed_status['error']) > 0:
                 logger.error("Got error for RSS feed %s : %s",
                              feed_status['url'], feed_status['error'])
+                if "503" in feed_status["error"]:
+                    time.sleep(5 * random.random())
+                    self.feed_handle.update_feed()
+                    self.tqueue.add_task(wait_for_feed, 1, id=self.source)
             else:
                 # The feed is done updating. Now periodically start retrieving torrents.
                 self.tqueue.add_task(self._update, 0, id=self.source)
