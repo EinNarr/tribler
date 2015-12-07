@@ -10,6 +10,7 @@
 /.coverage
 /.dir-locals.el
 /.gdb_history
+/.idea/
 /.noseids
 /.project
 /.pydevproject
