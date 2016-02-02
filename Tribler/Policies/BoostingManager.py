@@ -34,7 +34,7 @@ from Tribler.dispersy.util import call_on_reactor_thread
 from Tribler.Main.vwxGUI.GuiUtility import GUIUtility
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.CRITICAL)
+logger.setLevel(logging.INFO)
 formatter = logging.Formatter(
     "%(asctime)s.%(msecs).03dZ-%(levelname)s-%(message)s",
     datefmt="%Y%m%dT%H%M%S")
@@ -85,12 +85,6 @@ class BoostingPolicy(object):
         sorted_torrents = sorted([torrent for torrent in torrents.itervalues()
                                   if self.key_check(torrent)],
                                  key=self.key, reverse=self.reverse)
-
-        for k,v in torrents.iteritems():
-            if v['source'].startswith("http"):
-                pass
-            else:
-                logger.debug("ada torrent %s -> %s", hexlify(k), v)
 
         torrents_start = []
         for torrent in sorted_torrents[:max_active]:
@@ -300,8 +294,8 @@ class BoostingManager(TaskManager):
                 torrent['metainfo'] = TorrentDef.load_from_memory(torrent_data)
             else:
                 # TODO(emilon): Handle the case where the torrent hasn't been collected. (collected from the DHT)
-                torrent['metainfo'] = TorrentDefNoMetainfo(infohash, torrent['name'])
-                # pass
+                # torrent['metainfo'] = TorrentDefNoMetainfo(infohash, torrent['name'])
+                pass
 
         # If duplicates exist, set is_duplicate to True, except for the one with the most seeders.
         duplicates = [other for other in self.torrents.values() if self.compare_torrents(torrent, other)]
@@ -333,6 +327,7 @@ class BoostingManager(TaskManager):
         for tracker, infohashes in trackers.iteritems():
             try:
                 reply = {}
+                #TODO(ardhi) : specific tracker? make it more general
                 if tracker.startswith("http://tracker.etree.org"):
                     for infohash in infohashes:
                         reply.update(scrape_tcp(tracker, (infohash,)))
@@ -576,14 +571,14 @@ class ChannelSource(BoostingSource):
         from Tribler.Main.Utility.GuiDBHandler import startWorker
         def doGui(delayedResult):
             # wait here
-            requesttype = delayedResult.get()
+            requesttype = delayedResult.get(timeout=70)
 
         def showTorrent(torrent):
             if (torrent.files):
                 infohash = torrent.infohash
                 self.torrents[infohash] = {}
                 self.torrents[infohash]['name'] = torrent.name
-                self.torrents[infohash]['metainfo'] = torrent.tdef.get_metainfo()
+                self.torrents[infohash]['metainfo'] = torrent.tdef
                 self.torrents[infohash]['creation_date'] = torrent.creation_date
                 self.torrents[infohash]['length'] = torrent.tdef.get_length()
                 self.torrents[infohash]['num_files'] = len(torrent.files)
@@ -592,15 +587,19 @@ class ChannelSource(BoostingSource):
 
                 del self.unavail_torrent[infohash]
 
+                logger.info("Torrent %s from %s ready to start", hexlify(infohash), hexlify(self.source))
+
                 if self.callback:
                     self.callback(self.source, infohash, self.torrents[infohash])
                 self.database_updated = False
 
-        for k,t in self.unavail_torrent.items():
-            startWorker(doGui, self.gui_util.torrentsearch_manager.loadTorrent,
-                        wargs=(t,), wkwargs={'callback': showTorrent})
+        logger.info("Unavailable torrents %d from %s", len(self.unavail_torrent), hexlify(self.source))
 
-        self.session.lm.threadpool.add_task(self._check_tor, 50, task_name="_checktor")
+        if len(self.unavail_torrent):
+            for k,t in self.unavail_torrent.items():
+                startWorker(doGui, self.gui_util.torrentsearch_manager.loadTorrent,
+                            wargs=(t,), wkwargs={'callback': showTorrent})
+            self.session.lm.threadpool.add_task(self._check_tor, 100, task_name=str(self.source)+"_checktor")
 
     def _update(self):
         if len(self.torrents) < self.max_torrents:
@@ -616,7 +615,7 @@ class ChannelSource(BoostingSource):
                                              {self.channel_id: self.channelcast_db.getChannel(self.channel_id)})[2]
                 self.unavail_torrent = {t.infohash:t for t in listtor}
 
-                self._check_tor()
+                self.session.lm.threadpool.add_task(self._check_tor, 0, task_name=str(self.source)+"_init_checktor")
 
             self.session.lm.threadpool.add_task(self._update, self.interval, task_name=str(self.source)+"_update")
 
@@ -625,9 +624,6 @@ class ChannelSource(BoostingSource):
             # Unused arguments
             pass
         self.database_updated = True
-
-
-
 
 class RSSFeedSource(BoostingSource):
 

@@ -74,6 +74,12 @@ class AddBoostingSource(wx.Dialog):
             self.source = self.rss_feed_edit.GetValue()
         else:
             self.source = self.rss_dir_edit.GetValue()
+
+        from binascii import hexlify
+
+        self.guiutility.Notify(
+            "Successfully add source for credit mining %s" % hexlify(self.source))
+
         self.EndModal(wx.ID_OK)
 
     def OnCancel(self, event):

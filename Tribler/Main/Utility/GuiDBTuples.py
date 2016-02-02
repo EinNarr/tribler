@@ -101,7 +101,7 @@ class Torrent(Helper):
         Helper.__init__(self)
 
         assert isinstance(infohash, str), type(infohash)
-        # assert isinstance(name, basestring), type(name)
+        assert isinstance(name, basestring), type(name)
 
         self.infohash = infohash
         self.name = name
