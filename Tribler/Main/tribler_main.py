@@ -897,6 +897,11 @@ class ABCApp(object):
             self.webUI.delInstance()
 
         if self.boosting_manager:
+
+            #remove credit mining data
+            #TODO(ardhi) : not persistent mode only
+            import shutil; shutil.rmtree(self.boosting_manager.credit_mining_path)
+
             self.boosting_manager.shutdown()
             self.boosting_manager.del_instance()
 

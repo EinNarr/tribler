@@ -251,6 +251,14 @@ class BoostingManager(TaskManager):
         if source_key in self.boosting_sources:
             source = self.boosting_sources.pop(source_key)
             source.kill_tasks()
+            logger.info("Removed source %s", source_key)
+
+            rm_torrents = [torrent for _, torrent in self.torrents.items() if torrent['source'] == source_key]
+            map(self.stop_download,rm_torrents)
+            logger.info("Torrents download stopped")
+
+            map(lambda x:self.torrents.pop(x["metainfo"].get_infohash(), None), rm_torrents)
+            logger.info("Removing from possible swarms")
 
     def compare_torrents(self, t1, t2):
         # pylint: disable=no-self-use, bad-builtin
@@ -373,7 +381,9 @@ class BoostingManager(TaskManager):
             dscfg.set_safe_seeding(False)
 
             preload = torrent.get('preload', False)
-            logger.info("Starting %s preload %s", hexlify(torrent["metainfo"].get_infohash()), preload)
+            logger.info("Starting %s %d/%d preload %s",
+                        hexlify(torrent["metainfo"].get_infohash()),
+                        torrent["num_seeders"],torrent["num_leechers"], preload)
             torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=torrent.get('pstate', None),
                                                       hidden=True, share_mode=not preload, checkpoint_disabled=True)
             torrent['download'].set_priority(torrent.get('prio', 1))
@@ -405,7 +415,7 @@ class BoostingManager(TaskManager):
 
         if self.policy is not None and torrents:
 
-            logger.debug("Selecting from %s torrents", len(torrents))
+            logger.info("Selecting from %s torrents", len(torrents))
 
             # Determine which torrent to start and which to stop.
             torrents_start, torrents_stop = self.policy.apply(
@@ -582,8 +592,8 @@ class ChannelSource(BoostingSource):
                 self.torrents[infohash]['creation_date'] = torrent.creation_date
                 self.torrents[infohash]['length'] = torrent.tdef.get_length()
                 self.torrents[infohash]['num_files'] = len(torrent.files)
-                self.torrents[infohash]['num_seeders'] = torrent.swarminfo[0]
-                self.torrents[infohash]['num_leechers'] = torrent.swarminfo[1]
+                self.torrents[infohash]['num_seeders'] = torrent.swarminfo[0] or -1
+                self.torrents[infohash]['num_leechers'] = torrent.swarminfo[1] or -1
 
                 del self.unavail_torrent[infohash]
 
@@ -599,7 +609,9 @@ class ChannelSource(BoostingSource):
             for k,t in self.unavail_torrent.items():
                 startWorker(doGui, self.gui_util.torrentsearch_manager.loadTorrent,
                             wargs=(t,), wkwargs={'callback': showTorrent})
-            self.session.lm.threadpool.add_task(self._check_tor, 100, task_name=str(self.source)+"_checktor")
+
+            if not self.session.lm.threadpool.is_pending_task_active(str(self.source)+"_checktor"):
+                self.session.lm.threadpool.add_task(self._check_tor, 100, task_name=str(self.source)+"_checktor")
 
     def _update(self):
         if len(self.torrents) < self.max_torrents:
@@ -692,6 +704,12 @@ class RSSFeedSource(BoostingSource):
                         self.callback(self.source, tdef.get_infohash(), self.torrents[infohash])
 
             self.session.lm.threadpool.add_task(self._update, self.interval, task_name=str(self.source)+"_update")
+
+    def kill_tasks(self):
+        BoostingSource.kill_tasks(self)
+
+        #stop updating
+        self.session.lm.threadpool.cancel_pending_task(str(self.source)+"_update")
 
 
 class DirectorySource(BoostingSource):

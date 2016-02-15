@@ -325,7 +325,7 @@ class CreditMiningSearchManager(BaseManager):
                                num_seeders=torrent['num_seeders'], num_leechers=torrent['num_leechers'])
             t.torrent_db = self.library_manager.torrent_db
             t.channelcast_db = self.library_manager.channelcast_db
-            t.channel
+            # t.channel
             self.library_manager.addDownloadState(t)
             return t
 
@@ -2031,10 +2031,11 @@ class CreditMiningList(SizeList):
 
         columns = [{'name': 'Speed up/down', 'width': '32em', 'autoRefresh': False},
                    {'name': 'Bytes up/down', 'width': '32em', 'autoRefresh': False},
-                   {'name': 'Seeders/leechers', 'width': '27em'},
+                   {'name': 'Seeders/leechers', 'width': '27em', 'autoRefresh': False},
                    {'name': 'Duplicate', 'showColumname': False, 'width':  '2em'},
-                   {'name': 'Hash', 'width':  wx.LIST_AUTOSIZE, 'fmt': lambda ih: ih.encode('hex')[:10]},
-                   {'name': 'Source', 'width': '40em', 'type': 'method', 'method': self.CreateSource}]
+                   {'name': 'Hash', 'width':  '27em', 'fmt': lambda ih: ih.encode('hex')[:10]},
+                   {'name': 'Source', 'width': '40em', 'type': 'method', 'method': self.CreateSource},
+                   {'name': 'Investment status', 'width': '32em', 'autoRefresh': False}]
 
         columns = self.guiutility.SetColumnInfo(CreditMiningListItem, columns)
         ColumnsManager.getInstance().setColumns(CreditMiningListItem, columns)
@@ -2068,6 +2069,7 @@ class CreditMiningList(SizeList):
                 dlg = RemoveBoostingSource(None)
                 if dlg.ShowModal() == wx.ID_OK and dlg.GetValue():
                     self.boosting_manager.remove_source(dlg.GetValue())
+                    self.GetManager().refresh()
                 dlg.Destroy()
 
             addsource = LinkStaticText(header, 'Add', icon=None)
@@ -2078,6 +2080,7 @@ class CreditMiningList(SizeList):
             self.b_down = wx.StaticText(header, -1, 'Total bytes down: -')
             self.s_up = wx.StaticText(header, -1, 'Total speed up: -')
             self.s_down = wx.StaticText(header, -1, 'Total speed down: -')
+            self.iv_sum = wx.StaticText(header, -1, 'Investment summary: -')
             _set_font(text, size_increment=2, fontweight=wx.FONTWEIGHT_BOLD)
             sizer = wx.BoxSizer(wx.VERTICAL)
             sizer.AddStretchSpacer()
@@ -2093,6 +2096,7 @@ class CreditMiningList(SizeList):
             sizer.Add(self.b_down, 0, wx.LEFT, 5)
             sizer.Add(self.s_up, 0, wx.LEFT, 5)
             sizer.Add(self.s_down, 0, wx.LEFT, 5)
+            sizer.Add(self.iv_sum, 0, wx.LEFT, 5)
             sizer.AddStretchSpacer()
             header.SetSizer(sizer)
             header.SetMinSize((-1, 100))
@@ -2149,6 +2153,13 @@ class CreditMiningList(SizeList):
                     bytes_down = seeding_stats['total_down']
 
                     item.RefreshColumn(1, size_format(bytes_up) + ' / ' + size_format(bytes_down))
+                    if bytes_down:
+                        item.RefreshColumn(6, '%f' %(float(bytes_up)/float(bytes_down)))
+
+                #refresh seeder/leecher
+                it_seeder = self.boosting_manager.torrents[item.original_data.infohash]['num_seeders']
+                it_leecher = self.boosting_manager.torrents[item.original_data.infohash]['num_leechers']
+                item.RefreshColumn(2, '%d / %d' %(it_seeder, it_leecher))
 
                 item.SetSelectedColour(wx.Colour(255, 175, 175))
                 item.SetDeselectedColour(wx.Colour(255, 200, 200))
@@ -2168,12 +2179,20 @@ class CreditMiningList(SizeList):
 
                 item.RefreshColumn(0, '- / -')
 
-            is_dup = self.boosting_manager.torrents[item.original_data.infohash].get('is_duplicate', None)
-            item.RefreshColumn(3, ('*' if is_dup else '**') if is_dup != None else '')
+            if item.original_data.infohash in self.boosting_manager.torrents:
+                is_dup = self.boosting_manager.torrents[item.original_data.infohash].get('is_duplicate', None)
+                item.RefreshColumn(3, ('*' if is_dup else '**') if is_dup != None else '')
+
+
 
         seeding_stats = [ds.get_seeding_statistics() for ds in boosting_dslist if ds.get_seeding_statistics()]
-        self.b_up.SetLabel('Total bytes up: ' + size_format(sum([stat['total_up'] for stat in seeding_stats])))
-        self.b_down.SetLabel('Total bytes down: ' + size_format(sum([stat['total_down'] for stat in seeding_stats])))
+        tot_bytes_up = sum([stat['total_up'] for stat in seeding_stats])
+        tot_bytes_dwn = sum([stat['total_down'] for stat in seeding_stats])
+        self.b_up.SetLabel('Total bytes up: ' + size_format(tot_bytes_up))
+        self.b_down.SetLabel('Total bytes down: ' + size_format(tot_bytes_dwn))
+
+        if tot_bytes_dwn:
+            self.iv_sum.SetLabel(' Investment summary: %f' %(float(tot_bytes_up)/float(tot_bytes_dwn)))
 
         self.s_up.SetLabel('Total speed up: ' + speed_format(sum([ds.get_current_speed('up') for ds in boosting_dslist])))
         self.s_down.SetLabel('Total speed down: ' + speed_format(sum([ds.get_current_speed('down') for ds in boosting_dslist])))
@@ -2188,7 +2207,7 @@ class CreditMiningList(SizeList):
         SizeList.SetData(self, data)
 
         if len(data) > 0:
-            data = [(file.infohash, ['- / -', '- / -', '%d / %d' % (file.num_seeders, file.num_leechers), '', file.infohash, ''], file, CreditMiningListItem) for file in data]
+            data = [(file.infohash, ['- / -', '- / -', '%d / %d' % (file.num_seeders, file.num_leechers), '', file.infohash, '', '-1'], file, CreditMiningListItem) for file in data]
         else:
             self.list.ShowMessage("No credit mining data available.")
             self.SetNrResults(0)
@@ -2199,7 +2218,7 @@ class CreditMiningList(SizeList):
     def RefreshData(self, key, data):
         List.RefreshData(self, key, data)
 
-        data = (data.infohash, ['-', '-', '%d / %d' % (data.num_seeders, data.num_leechers), '', data.infohash, ''], data)
+        data = (data.infohash, ['-', '-', '%d / %d' % (data.num_seeders, data.num_leechers), '', data.infohash, '','-1'], data)
         self.list.RefreshData(key, data)
 
     def SetNrResults(self, nr):
