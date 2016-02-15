@@ -21,17 +21,15 @@ import libtorrent as lt
 
 from Tribler.Core.DownloadConfig import DownloadStartupConfig
 from Tribler.Core.TorrentChecker.session import MAX_TRACKER_MULTI_SCRAPE
-from Tribler.Core.TorrentDef import TorrentDef, TorrentDefNoMetainfo
+from Tribler.Core.TorrentDef import TorrentDef
 from Tribler.Core.simpledefs import DLSTATUS_SEEDING, NTFY_INSERT, NTFY_SCRAPE, NTFY_TORRENTS, NTFY_UPDATE
 from Tribler.Main.globals import DefaultDownloadStartupConfig
+from Tribler.Main.vwxGUI.GuiUtility import GUIUtility
 from Tribler.Main.vwxGUI.SearchGridManager import ChannelManager
 from Tribler.Utilities.scraper import scrape_tcp, scrape_udp
 from Tribler.community.allchannel.community import AllChannelCommunity
 from Tribler.community.channel.community import ChannelCommunity
-from Tribler.dispersy.taskmanager import TaskManager
 from Tribler.dispersy.util import call_on_reactor_thread
-
-from Tribler.Main.vwxGUI.GuiUtility import GUIUtility
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -48,8 +46,11 @@ logger.addHandler(handler)
 
 number_types = (int, long, float)
 
-CONFIG_FILE = os.path.abspath("boosting.ini")
+# CONFIG_FILE = "boosting.ini"
 
+from Tribler.Core.Utilities.install_dir import determine_install_dir
+TRIBLER_ROOT = determine_install_dir()
+CONFIG_FILE = os.path.join(TRIBLER_ROOT, "boosting.ini")
 
 def lev(a, b):
     "Calculates the Levenshtein distance between a and b."
@@ -144,6 +145,7 @@ class BoostingManager(TaskManager):
         self.session = session
         self.utility = utility
         self.credit_mining_path = os.path.join(DefaultDownloadStartupConfig.getInstance().get_dest_dir(), "credit_mining")
+
         if not os.path.exists(self.credit_mining_path):
             os.mkdir(self.credit_mining_path)
 
@@ -236,9 +238,15 @@ class BoostingManager(TaskManager):
         if source not in self.boosting_sources:
             args = (self.session, self.session.lm.threadpool, source, self.source_interval, self.max_torrents_per_source, self.on_torrent_insert)
             # pylint: disable=star-args
-            if os.path.isdir(source):
+
+            try:
+                isdir = os.path.isdir(source)
+            except TypeError:
+                isdir = False
+
+            if isdir:
                 self.boosting_sources[source] = DirectorySource(*args)
-            elif source.startswith('http://'):
+            elif source.startswith('http://') or source.startswith('https://'):
                 self.boosting_sources[source] = RSSFeedSource(*args)
             elif len(source) == 20:
                 self.boosting_sources[source] = ChannelSource(*args)
@@ -279,7 +287,13 @@ class BoostingManager(TaskManager):
 
     def on_torrent_insert(self, source, infohash, torrent):
         # Remember where we got this torrent from
-        if os.path.isdir(source) or source.startswith('http://'):
+
+        try:
+            isdir = os.path.isdir(source)
+        except TypeError:
+            isdir = False
+
+        if isdir or source.startswith('http://') or source.startswith('https://'):
             source_str = source
         elif len(source) == 20:
             source_str = source.encode('hex')
@@ -686,14 +700,36 @@ class RSSFeedSource(BoostingSource):
                     if not os.path.exists(torrent_filename):
                         try:
                             # Download the torrent and create a TorrentDef.
-                            f = urllib.urlopen(self.unescape(item['url']))
-                            metainfo = lt.bdecode(f.read())
-                            tdef = TorrentDef.load_from_dict(metainfo)
-                            tdef.save(torrent_filename)
+                            if "torcache" in item['url']:
+                                import urllib2
+                                import StringIO
+                                import gzip
+                                req = urllib2.Request(self.unescape(item['url']))
+                                req.add_header('Referer', 'http://torcache.net/')
+                                req.add_header('Accept-encoding', 'deflate,gzip')
+                                req.add_header('User-Agent', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36')
+
+                                res = urllib2.urlopen(req)
+                                cfile = StringIO.StringIO()
+                                cfile.write(res.read())
+                                cfile.seek(0)
+
+                                f = gzip.GzipFile(fileobj=cfile, mode='rb')
+                            else:
+                                f = urllib.urlopen(self.unescape(item['url']))
                         except:
                             logger.error("Could not get torrent, skipping %s",
                                          item['url'])
                             continue
+
+                        try:
+                            metainfo = lt.bdecode(f.read())
+                            tdef = TorrentDef.load_from_dict(metainfo)
+                            tdef.save(torrent_filename)
+
+                        except:
+                            logger.error("Could not parse/save torrent, skipping %s", torrent_filename)
+
                     else:
                         tdef = TorrentDef.load(torrent_filename)
                     # Create a torrent dict.

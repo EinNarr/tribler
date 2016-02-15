@@ -900,7 +900,7 @@ class ABCApp(object):
 
             #remove credit mining data
             #TODO(ardhi) : not persistent mode only
-            import shutil; shutil.rmtree(self.boosting_manager.credit_mining_path)
+            import shutil; shutil.rmtree(self.boosting_manager.credit_mining_path, ignore_errors=True)
 
             self.boosting_manager.shutdown()
             self.boosting_manager.del_instance()
