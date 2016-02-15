@@ -201,7 +201,7 @@ class BoostingManager(TaskManager):
     def load(self):
         if self.utility:
             try:
-                string_to_source = lambda s: s.decode('hex') if len(s) == 40 and not (os.path.isdir(s) or s.startswith('http://')) else s
+                string_to_source = lambda s: s.decode('hex') if len(s) == 20 and not (os.path.isdir(s) or s.startswith('http://')) else s
                 for source in json.loads(self.utility.config.Read('boosting_sources')):
                     self.add_source(string_to_source(source))
                 logger.info("Initial boosting sources %s",
