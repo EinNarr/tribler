@@ -1,14 +1,18 @@
 # Written by Niels Zeilemaker
 import copy
 import logging
+import os
 import re
 import sys
-from binascii import hexlify
+from binascii import hexlify, unhexlify
 from colorsys import hsv_to_rgb, rgb_to_hsv
 from math import log
 from time import time
 
 import wx
+from wx._core import LayoutConstraints
+from wx.lib.mixins.listctrl import CheckListCtrlMixin
+from wx.lib.scrolledpanel import ScrolledPanel
 from wx.lib.wordwrap import wordwrap
 
 from Tribler.Category.Category import Category
@@ -36,8 +40,7 @@ from Tribler.Main.vwxGUI.list_item import (ActivityListItem, ChannelListItem, Ch
                                            TorrentListItem)
 from Tribler.Main.vwxGUI.widgets import (BetterText, FancyPanel, HorizontalGauge, LinkStaticText, SwarmHealth, TagText,
                                          TorrentStatus, TransparentStaticBitmap, TransparentText, _set_font)
-from Tribler.Policies.BoostingManager import BoostingManager
-
+from Tribler.Policies.BoostingManager import BoostingManager, BoostingSource
 
 DEBUG_RELEVANCE = False
 MAX_REFRESH_PARTIAL = 5
@@ -2014,6 +2017,19 @@ class LibraryList(SizeList):
                            " into green when approaching a upload/download ratio of %.1f" % seeding_ratio
         return header, message
 
+class CpanelCheckListCtrl(wx.ListCtrl, CheckListCtrlMixin):
+    def __init__(self, parent, listtype=None):
+        wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT | wx.LC_NO_HEADER)
+        CheckListCtrlMixin.__init__(self)
+        self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnItemActivated)
+        self.listtype = type
+        self.boosting_manager = BoostingManager.get_instance()
+
+    def OnItemActivated(self, evt):
+        self.ToggleItem(evt.m_itemIndex)
+
+    def OnCheckItem(self, index, flag):
+        self.boosting_manager.set_enable_mining(self.GetItemText(index), flag)
 
 class CreditMiningList(SizeList):
 
@@ -2028,6 +2044,9 @@ class CreditMiningList(SizeList):
         self.oldDS = {}
 
         self.initnumitems = False
+        self.tot_bytes_up = 0
+        self.tot_bytes_dwn = 0
+        self.channels = []
 
         columns = [{'name': 'Speed up/down', 'width': '32em', 'autoRefresh': False},
                    {'name': 'Bytes up/down', 'width': '32em', 'autoRefresh': False},
@@ -2045,10 +2064,151 @@ class CreditMiningList(SizeList):
         self.header.SetBackgroundColour(wx.WHITE)
         self.header.SetBorderColour(SEPARATOR_GREY)
 
+    def _PostInit(self):
+        self.header = self.CreateHeader(self.parent)
+        if self.header:
+            self.Add(self.header, 0, wx.EXPAND)
+
+        self.list = self.CreateList(self.parent)
+
+        hsizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.controlPanel = ScrolledPanel(self.parent,-1)
+        self.controlPanel.SetupScrolling()
+
+        self.cp_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        stext_cp = wx.StaticText(self.controlPanel, 1, 'Control Panel')
+        stext_rss = wx.StaticText(self.controlPanel, 1, 'RSS source')
+        stext_chn = wx.StaticText(self.controlPanel, 1, 'Channels source')
+        stext_dir = wx.StaticText(self.controlPanel, 1, 'Directory source')
+
+        self.rsslist = CpanelCheckListCtrl(self.controlPanel, "rss")
+        self.rsslist.InsertColumn(0,'RSS Source')
+        self.controlPanel.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSourceItemSelected, self.rsslist)
+        self.controlPanel.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.OnSourceItemDeselected, self.rsslist)
+
+        self.chnlist = CpanelCheckListCtrl(self.controlPanel, "channels")
+        self.chnlist.InsertColumn(0,'Channel Source')
+        self.controlPanel.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSourceItemSelected, self.chnlist)
+        self.controlPanel.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.OnSourceItemDeselected, self.chnlist)
+
+        self.dirlist = CpanelCheckListCtrl(self.controlPanel, "dir")
+        self.dirlist.InsertColumn(0,'Dir Source')
+        self.controlPanel.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSourceItemSelected, self.dirlist)
+        self.controlPanel.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.OnSourceItemDeselected, self.dirlist)
+
+        self.cp_sizer.Add(stext_cp)
+        self.cp_sizer.Add(stext_rss)
+        self.cp_sizer.Add(self.rsslist, 0, wx.EXPAND | wx.LEFT, 20)
+        self.cp_sizer.Add(stext_chn)
+        self.cp_sizer.Add(self.chnlist, 0, wx.EXPAND | wx.LEFT, 20)
+        self.cp_sizer.Add(stext_dir)
+        self.cp_sizer.Add(self.dirlist, 0, wx.EXPAND | wx.LEFT, 20)
+
+        self.controlPanel.SetSizer(self.cp_sizer)
+        hsizer.Add(self.controlPanel, 1, wx.EXPAND)
+
+        # left and right borders
+        if self.borders:
+            listSizer = wx.BoxSizer(wx.HORIZONTAL)
+            self.leftLine = wx.Panel(self.parent, size=(1, -1))
+            self.rightLine = wx.Panel(self.parent, size=(1, -1))
+
+            listSizer.Add(self.leftLine, 0, wx.EXPAND)
+            listSizer.Add(self.list, 1, wx.EXPAND)
+            listSizer.Add(self.rightLine, 0, wx.EXPAND)
+            hsizer.Add(listSizer, 3, wx.EXPAND)
+        else:
+            hsizer.Add(self.list, 1, wx.EXPAND)
+
+        self.Add(hsizer, 1, wx.EXPAND)
+        self.footer = self.CreateFooter(self.parent)
+
+        if self.footer:
+            self.Add(self.footer, 0, wx.EXPAND)
+
+        self.SetBackgroundColour(self.background)
+        self.Layout()
+
+        self.list.Bind(wx.EVT_SIZE, self.OnSize)
+
+        self.refresh_source()
+
     def GetManager(self):
         if getattr(self, 'manager', None) == None:
             self.manager = CreditMiningSearchManager(self)
         return self.manager
+
+    @warnWxThread
+    def refresh_source(self):
+        if len(self.boosting_manager.boosting_sources) == self.dirlist.GetItemCount()+self.rsslist.GetItemCount()+self.chnlist.GetItemCount():
+            return
+        else:
+            self.dirlist.DeleteAllItems()
+            self.rsslist.DeleteAllItems()
+            self.chnlist.DeleteAllItems()
+
+            for source_name,source_obj in self.boosting_manager.boosting_sources.iteritems():
+
+                listsource = None
+                try:
+                    isdir = os.path.isdir(source_name)
+                except TypeError:
+                    isdir = False
+
+                if isdir:
+                    listsource = self.dirlist
+                elif source_name.startswith('http://') or source_name.startswith('https://'):
+                    listsource = self.rsslist
+                elif len(source_name) == 20:
+                    listsource = self.chnlist
+                    source_name = hexlify(source_name)
+
+                listsource.InsertStringItem(listsource.GetItemCount(), source_name)
+                listsource.CheckItem(listsource.GetItemCount()-1, source_obj.enabled)
+
+                self.cp_sizer.GetItem(listsource).SetMinSize((0,listsource.GetItemCount()*
+                                                                (listsource.GetItem(1,0).GetFont().GetPixelSize().Get()[1]+1)))
+                listsource.SetColumnWidth(0, -1)
+
+            self.controlPanel.Layout()
+            self.controlPanel.SetupScrolling()
+
+    def OnSourceItemSelected(self, event):
+        source = event.GetText()
+        try:
+            isdir = os.path.isdir(source)
+        except TypeError:
+            isdir = False
+
+        if isdir:
+            listobj = self.dirlist
+        elif source.startswith('http://') or source.startswith('https://'):
+            listobj = self.rsslist
+        else:
+            listobj = self.chnlist
+
+        #TODO(ardhi) : only shows selected items in the mining list (can multiselect)
+        pass
+
+    def OnSourceItemDeselected(self, event):
+        source = event.GetText()
+        try:
+            isdir = os.path.isdir(source)
+        except TypeError:
+            isdir = False
+
+        if isdir:
+            listobj = self.dirlist
+        elif source.startswith('http://') or source.startswith('https://'):
+            listobj = self.rsslist
+        else:
+            listobj = self.chnlist
+
+        # print "list %s idx %s DEselected " %(listobj.listtype, event.m_itemIndex)
+        #TODO(ardhi) : remove deselected items from view
+        pass
 
     @warnWxThread
     def CreateHeader(self, parent):
@@ -2063,6 +2223,8 @@ class CreditMiningList(SizeList):
                     if source:
                         self.boosting_manager.add_source(source)
                         self.boosting_manager.set_archive(source, archive)
+                        self.refresh_source()
+
                 dlg.Destroy()
 
             def OnRemoveSource(event):
@@ -2137,7 +2299,7 @@ class CreditMiningList(SizeList):
 
         if didStateChange:
             if self.statefilter != None:
-                self.list.SetData()  # basically this means execute filter again
+                 self.list.SetData()  # basically this means execute filter again
 
         boosting_dslist = [ds for ds in dslist if ds.get_download().get_def().get_infohash() in new_keys]
         for item in self.list.items.itervalues():
@@ -2186,13 +2348,13 @@ class CreditMiningList(SizeList):
 
 
         seeding_stats = [ds.get_seeding_statistics() for ds in boosting_dslist if ds.get_seeding_statistics()]
-        tot_bytes_up = sum([stat['total_up'] for stat in seeding_stats])
-        tot_bytes_dwn = sum([stat['total_down'] for stat in seeding_stats])
-        self.b_up.SetLabel('Total bytes up: ' + size_format(tot_bytes_up))
-        self.b_down.SetLabel('Total bytes down: ' + size_format(tot_bytes_dwn))
+        self.tot_bytes_up = sum([stat['total_up'] for stat in seeding_stats])
+        self.tot_bytes_dwn = sum([stat['total_down'] for stat in seeding_stats])
+        self.b_up.SetLabel('Total bytes up: ' + size_format(self.tot_bytes_up))
+        self.b_down.SetLabel('Total bytes down: ' + size_format(self.tot_bytes_dwn))
 
-        if tot_bytes_dwn:
-            self.iv_sum.SetLabel(' Investment summary: %f' %(float(tot_bytes_up)/float(tot_bytes_dwn)))
+        if self.tot_bytes_dwn:
+            self.iv_sum.SetLabel(' Investment summary: %f' %(float(self.tot_bytes_up)/float(self.tot_bytes_dwn)))
 
         self.s_up.SetLabel('Total speed up: ' + speed_format(sum([ds.get_current_speed('up') for ds in boosting_dslist])))
         self.s_down.SetLabel('Total speed down: ' + speed_format(sum([ds.get_current_speed('down') for ds in boosting_dslist])))
@@ -2240,6 +2402,9 @@ class CreditMiningList(SizeList):
     def MatchFFilter(self, item):
         return True
 
+    def addCheckboxItem(self, source, sizer):
+        # assert source is BoostingSource, "source instance must be BoostingSource"
+        assert sizer is wx.Sizer
 
 class ChannelList(List):
 

@@ -29,6 +29,7 @@ from Tribler.Main.vwxGUI.SearchGridManager import ChannelManager
 from Tribler.Utilities.scraper import scrape_tcp, scrape_udp
 from Tribler.community.allchannel.community import AllChannelCommunity
 from Tribler.community.channel.community import ChannelCommunity
+from Tribler.dispersy.taskmanager import TaskManager
 from Tribler.dispersy.util import call_on_reactor_thread
 
 logger = logging.getLogger(__name__)
@@ -192,22 +193,40 @@ class BoostingManager(TaskManager):
     del_instance = staticmethod(del_instance)
 
     def shutdown(self):
+        # save configuration before stopping stuffs
+        self.save_config()
+
         for torrent in self.torrents.itervalues():
             try:
                 self.stop_download(torrent)
             except:
                 continue
 
-    def load(self):
-        if self.utility:
-            try:
-                string_to_source = lambda s: s.decode('hex') if len(s) == 20 and not (os.path.isdir(s) or s.startswith('http://')) else s
-                for source in json.loads(self.utility.config.Read('boosting_sources')):
-                    self.add_source(string_to_source(source))
-                logger.info("Initial boosting sources %s",
-                            self.boosting_sources.keys())
-            except:
-                logger.info("No initial boosting sources")
+    def set_enable_mining(self, source, mining_bool=True, force_restart=False):
+        for ihash, tor in self.torrents.iteritems():
+            if tor['source'] == source:
+                self.torrents[ihash]['enabled'] = mining_bool
+
+                if (not mining_bool):
+                    self.stop_download(tor)
+
+        string_to_source = lambda s: s.decode('hex') if len(s) == 40 and not (os.path.isdir(s) or s.startswith('http://')) else s
+        self.boosting_sources[string_to_source(source)].enabled = mining_bool
+
+        if force_restart:
+            self._select_torrent()
+
+    # not used?
+    # def load(self):
+    #     if self.utility:
+    #         try:
+    #             string_to_source = lambda s: s.decode('hex') if len(s) == 20 and not (os.path.isdir(s) or s.startswith('http://')) else s
+    #             for source in json.loads(self.utility.config.Read('boosting_sources')):
+    #                 self.add_source(string_to_source(source))
+    #             logger.info("Initial boosting sources %s",
+    #                         self.boosting_sources.keys())
+    #         except:
+    #             logger.info("No initial boosting sources")
 
     def save(self):
         if self.utility:
@@ -425,10 +444,10 @@ class BoostingManager(TaskManager):
                 elif torrent['download'].get_status() == DLSTATUS_SEEDING:
                     self.stop_download(torrent)
             elif not torrent.get('is_duplicate', False):
-                torrents[infohash] = torrent
+                if torrent.get('enabled', True):
+                    torrents[infohash] = torrent
 
         if self.policy is not None and torrents:
-
             logger.info("Selecting from %s torrents", len(torrents))
 
             # Determine which torrent to start and which to stop.
@@ -444,6 +463,7 @@ class BoostingManager(TaskManager):
     def load_config(self):
         config = ConfigParser.ConfigParser()
         config.read(CONFIG_FILE)
+        validate_source = lambda s: unhexlify(s) if len(s) == 40 and not s.startswith("http") else s
         for k, v in config.items(__name__):
             if k in self._saved_attributes:
                 object.__setattr__(self, k, int(v))
@@ -456,26 +476,58 @@ class BoostingManager(TaskManager):
                     self.policy = SeederRatioPolicy(self.session)
             elif k == "boosting_sources":
                 for boosting_source in json.loads(v):
+                    boosting_source = validate_source(boosting_source)
                     self.add_source(boosting_source)
             elif k == "archive_sources":
                 for archive_source in json.loads(v):
+                    archive_source = validate_source(archive_source)
                     self.set_archive(archive_source, True)
+            elif k == "boosting_enabled":
+                for boosting_source in json.loads(v):
+                    boosting_source = validate_source(boosting_source)
+                    if not self.boosting_sources[boosting_source]:
+                        self.add_source(boosting_source)
+                    self.boosting_sources[boosting_source].enabled = True
+            elif k == "boosting_disabled":
+                for boosting_source in json.loads(v):
+                    boosting_source = validate_source(boosting_source)
+                    if not self.boosting_sources[boosting_source]:
+                        self.add_source(boosting_source)
+                    self.boosting_sources[boosting_source].enabled = False
+
 
     def save_config(self):
         config = ConfigParser.ConfigParser()
         config.add_section(__name__)
         for k in self._saved_attributes:
             config.set(__name__, k, BoostingManager.__getattribute__(self, k))
-        config.set(__name__, "boosting_sources",
-                   json.dumps(self.boosting_sources.keys()))
+
+        source_to_string = lambda s: hexlify(s) if len(s) == 20 and not (s.startswith('http://') or s.startswith('https://')) else s
+
         archive_sources = []
+        lboosting_sources = []
+        flag_enabled_sources = []
+        flag_disabled_sources = []
         for boosting_source_name, boosting_source in \
                 self.boosting_sources.iteritems():
+
+            bsname = source_to_string(boosting_source_name)
+
+            lboosting_sources.append(bsname)
+            if boosting_source.enabled:
+                flag_enabled_sources.append(bsname)
+            else:
+                flag_disabled_sources.append(bsname)
+
             if boosting_source.archive:
-                archive_sources.append(boosting_source_name)
+                archive_sources.append(bsname)
+
+        config.set(__name__, "boosting_sources", json.dumps(lboosting_sources))
+        config.set(__name__, "boosting_enabled", json.dumps(flag_enabled_sources))
+        config.set(__name__, "boosting_disabled", json.dumps(flag_disabled_sources))
         if archive_sources:
-            config.set(__name__, "archive_sources",
-                       json.dumps(archive_sources))
+            config.set(__name__, "archive_sources", json.dumps(archive_sources))
+
         if isinstance(self.policy, RandomPolicy):
             policy = "random"
         elif isinstance(self.policy, CreationDatePolicy):
@@ -519,6 +571,8 @@ class BoostingSource(object):
         self.callback = callback
         self.archive = False
 
+        self.enabled = True
+
     def kill_tasks(self):
         self.session.lm.threadpool.cancel_pending_task(self.source)
 
@@ -542,6 +596,8 @@ class ChannelSource(BoostingSource):
 
         self.community = None
         self.database_updated = True
+
+
 
         self.session.add_observer(self._on_database_updated, NTFY_TORRENTS, [NTFY_INSERT, NTFY_UPDATE])
         self.session.lm.threadpool.add_task(lambda cid=dispersy_cid: self._load(cid), 0, task_name=self.source)
@@ -589,7 +645,12 @@ class ChannelSource(BoostingSource):
                 logger.warning("Could not get channel id, retrying in 10 s")
                 self.session.lm.threadpool.add_task(get_channel_id, 10, task_name=str(self.source)+"_get_channel_id")
 
-        join_community()
+        try:
+            join_community()
+        except:
+            logger.info("Channel %s was not ready, waits for next interval", hexlify(self.source))
+            self.session.lm.threadpool.add_task(lambda cid=self.source: self._load(cid), 100, task_name=self.source)
+
 
     def _check_tor(self):
         from Tribler.Main.Utility.GuiDBHandler import startWorker
@@ -608,6 +669,7 @@ class ChannelSource(BoostingSource):
                 self.torrents[infohash]['num_files'] = len(torrent.files)
                 self.torrents[infohash]['num_seeders'] = torrent.swarminfo[0] or -1
                 self.torrents[infohash]['num_leechers'] = torrent.swarminfo[1] or -1
+                self.torrents[infohash]['enabled'] = self.enabled
 
                 del self.unavail_torrent[infohash]
 
@@ -635,13 +697,17 @@ class ChannelSource(BoostingSource):
                 cm = ChannelManager.getInstance()
 
                 CHANTOR_DB = ['ChannelTorrents.channel_id', 'Torrent.torrent_id', 'infohash', '""', 'length', 'category', 'status', 'num_seeders', 'num_leechers', 'ChannelTorrents.id', 'ChannelTorrents.dispersy_id', 'ChannelTorrents.name', 'Torrent.name', 'ChannelTorrents.description', 'ChannelTorrents.time_stamp', 'ChannelTorrents.inserted']
-                torrent_values = self.channelcast_db.getTorrentsFromChannelId(self.channel_id, True, CHANTOR_DB, self.max_torrents)
 
-                listtor = cm._createTorrents(torrent_values, True,
-                                             {self.channel_id: self.channelcast_db.getChannel(self.channel_id)})[2]
-                self.unavail_torrent = {t.infohash:t for t in listtor}
+                try:
+                    torrent_values = self.channelcast_db.getTorrentsFromChannelId(self.channel_id, True, CHANTOR_DB, self.max_torrents)
 
-                self.session.lm.threadpool.add_task(self._check_tor, 0, task_name=str(self.source)+"_init_checktor")
+                    listtor = cm._createTorrents(torrent_values, True,
+                                                 {self.channel_id: self.channelcast_db.getChannel(self.channel_id)})[2]
+                    self.unavail_torrent = {t.infohash:t for t in listtor}
+
+                    self.session.lm.threadpool.add_task(self._check_tor, 0, task_name=str(self.source)+"_init_checktor")
+                except:
+                    logger.info("Channel %s was not ready, waits for next interval", hexlify(self.source))
 
             self.session.lm.threadpool.add_task(self._update, self.interval, task_name=str(self.source)+"_update")
 
@@ -689,7 +755,7 @@ class RSSFeedSource(BoostingSource):
 
             feed_status = self.feed_handle.get_feed_status()
 
-            torrent_keys = ['name', 'metainfo', 'creation_date', 'length', 'num_files', 'num_seeders', 'num_leechers']
+            torrent_keys = ['name', 'metainfo', 'creation_date', 'length', 'num_files', 'num_seeders', 'num_leechers', 'enabled']
 
             for item in feed_status['items']:
                 # Not all RSS feeds provide us with the infohash, so we use a fake infohash based on the URL to identify the torrents.
@@ -733,8 +799,9 @@ class RSSFeedSource(BoostingSource):
                     else:
                         tdef = TorrentDef.load(torrent_filename)
                     # Create a torrent dict.
-                    torrent_values = [item['title'], tdef, tdef.get_creation_date(), tdef.get_length(), len(tdef.get_files()), -1, -1]
+                    torrent_values = [item['title'], tdef, tdef.get_creation_date(), tdef.get_length(), len(tdef.get_files()), -1, -1, self.enabled]
                     self.torrents[infohash] = dict(zip(torrent_keys, torrent_values))
+
                     # Notify the BoostingManager and provide the real infohash.
                     if self.callback:
                         self.callback(self.source, tdef.get_infohash(), self.torrents[infohash])
@@ -767,7 +834,7 @@ class DirectorySource(BoostingSource):
     def _update(self):
         if len(self.torrents) < self.max_torrents:
 
-            torrent_keys = ['name', 'metainfo', 'creation_date', 'length', 'num_files', 'num_seeders', 'num_leechers']
+            torrent_keys = ['name', 'metainfo', 'creation_date', 'length', 'num_files', 'num_seeders', 'num_leechers', 'enabled']
 
             for torrent_filename in glob.glob(self.source + '/*.torrent'):
                 if torrent_filename not in self.torrents:
@@ -778,7 +845,7 @@ class DirectorySource(BoostingSource):
                                      torrent_filename)
                         continue
                     # Create a torrent dict.
-                    torrent_values = [tdef.get_name_as_unicode(), tdef, tdef.get_creation_date(), tdef.get_length(), len(tdef.get_files()), -1, -1]
+                    torrent_values = [tdef.get_name_as_unicode(), tdef, tdef.get_creation_date(), tdef.get_length(), len(tdef.get_files()), -1, -1, self.enabled]
                     self.torrents[torrent_filename] = dict(zip(torrent_keys, torrent_values))
                     # Notify the BoostingManager.
                     if self.callback:
