@@ -2037,6 +2037,9 @@ class CreditMiningList(SizeList):
         self.tot_bytes_dwn = 0
         self.channels = []
 
+        self.top_info_p = parent.FindWindowByName('top_info_p') or None
+
+
         columns = [{'name': 'Speed up/down', 'width': '32em', 'autoRefresh': False},
                    {'name': 'Bytes up/down', 'width': '32em', 'autoRefresh': False},
                    {'name': 'Seeders/leechers', 'width': '27em', 'autoRefresh': False},
@@ -2093,41 +2096,40 @@ class CreditMiningList(SizeList):
         return self.manager
 
 
-
-    @warnWxThread
-    def refresh_source(self):
-        if len(self.boosting_manager.boosting_sources) == self.dirlist.GetItemCount()+self.rsslist.GetItemCount()+self.chnlist.GetItemCount():
-            return
-        else:
-            self.dirlist.DeleteAllItems()
-            self.rsslist.DeleteAllItems()
-            self.chnlist.DeleteAllItems()
-
-            for source_name,source_obj in self.boosting_manager.boosting_sources.iteritems():
-
-                listsource = None
-                try:
-                    isdir = os.path.isdir(source_name)
-                except TypeError:
-                    isdir = False
-
-                if isdir:
-                    listsource = self.dirlist
-                elif source_name.startswith('http://') or source_name.startswith('https://'):
-                    listsource = self.rsslist
-                elif len(source_name) == 20:
-                    listsource = self.chnlist
-                    source_name = hexlify(source_name)
-
-                listsource.InsertStringItem(listsource.GetItemCount(), source_name)
-                listsource.CheckItem(listsource.GetItemCount()-1, source_obj.enabled)
-
-                self.cp_sizer.GetItem(listsource).SetMinSize((0,listsource.GetItemCount()*
-                                                                (listsource.GetItem(1,0).GetFont().GetPixelSize().Get()[1]+1)))
-                listsource.SetColumnWidth(0, -1)
-
-            self.controlPanel.Layout()
-            self.controlPanel.SetupScrolling()
+    # @warnWxThread
+    # def refresh_source(self):
+    #     if len(self.boosting_manager.boosting_sources) == self.dirlist.GetItemCount()+self.rsslist.GetItemCount()+self.chnlist.GetItemCount():
+    #         return
+    #     else:
+    #         self.dirlist.DeleteAllItems()
+    #         self.rsslist.DeleteAllItems()
+    #         self.chnlist.DeleteAllItems()
+    #
+    #         for source_name,source_obj in self.boosting_manager.boosting_sources.iteritems():
+    #
+    #             listsource = None
+    #             try:
+    #                 isdir = os.path.isdir(source_name)
+    #             except TypeError:
+    #                 isdir = False
+    #
+    #             if isdir:
+    #                 listsource = self.dirlist
+    #             elif source_name.startswith('http://') or source_name.startswith('https://'):
+    #                 listsource = self.rsslist
+    #             elif len(source_name) == 20:
+    #                 listsource = self.chnlist
+    #                 source_name = hexlify(source_name)
+    #
+    #             listsource.InsertStringItem(listsource.GetItemCount(), source_name)
+    #             listsource.CheckItem(listsource.GetItemCount()-1, source_obj.enabled)
+    #
+    #             self.cp_sizer.GetItem(listsource).SetMinSize((0,listsource.GetItemCount()*
+    #                                                             (listsource.GetItem(1,0).GetFont().GetPixelSize().Get()[1]+1)))
+    #             listsource.SetColumnWidth(0, -1)
+    #
+    #         self.controlPanel.Layout()
+    #         self.controlPanel.SetupScrolling()
 
     @warnWxThread
     def CreateHeader(self, parent):
@@ -2269,17 +2271,22 @@ class CreditMiningList(SizeList):
         seeding_stats = [ds.get_seeding_statistics() for ds in boosting_dslist if ds.get_seeding_statistics()]
         self.tot_bytes_up = sum([stat['total_up'] for stat in seeding_stats])
         self.tot_bytes_dwn = sum([stat['total_down'] for stat in seeding_stats])
-        # self.b_up.SetLabel('Total bytes up: ' + size_format(self.tot_bytes_up))
-        # self.b_down.SetLabel('Total bytes down: ' + size_format(self.tot_bytes_dwn))
 
-        # if self.tot_bytes_dwn:
-        #     self.iv_sum.SetLabel(' Investment summary: %f' %(float(self.tot_bytes_up)/float(self.tot_bytes_dwn)))
-        #
-        # self.s_up.SetLabel('Total speed up: ' + speed_format(sum([ds.get_current_speed('up') for ds in boosting_dslist])))
-        # self.s_down.SetLabel('Total speed down: ' + speed_format(sum([ds.get_current_speed('down') for ds in boosting_dslist])))
-        #
-        # if newFilter:
-        #     self.newfilter = False
+        if self.top_info_p:
+            up_rate_txt = self.top_info_p.FindWindowByName('up_rate')
+
+            header = self.parent.GetGrandParent().FindWindowByName('cm_header')
+            header.FindWindowByName('b_up').SetLabel('Total bytes up: ' + size_format(self.tot_bytes_up))
+            header.FindWindowByName('b_down').SetLabel('Total bytes down: ' + size_format(self.tot_bytes_dwn))
+
+            if self.tot_bytes_dwn:
+                header.FindWindowByName('iv_sum').SetLabel(' Investment summary: %f' %(float(self.tot_bytes_up)/float(self.tot_bytes_dwn)))
+
+                header.FindWindowByName('s_up').SetLabel('Total speed up: ' + speed_format(sum([ds.get_current_speed('up') for ds in boosting_dslist])))
+                header.FindWindowByName('s_down').SetLabel('Total speed down: ' + speed_format(sum([ds.get_current_speed('down') for ds in boosting_dslist])))
+
+            if newFilter:
+                self.newfilter = False
 
         self.oldDS = dict([(infohash, item.original_data.ds) for infohash, item in self.list.items.iteritems()])
 

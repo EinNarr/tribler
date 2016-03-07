@@ -228,7 +228,7 @@ class CreditMiningPanel(FancyPanel):
         self.infoPanel = FancyPanel(parent, style=wx.BORDER_SUNKEN)
 
         if_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.top_info_p = FancyPanel(self.infoPanel, border=wx.ALL, style=wx.BORDER_SUNKEN)
+        self.top_info_p = FancyPanel(self.infoPanel, border=wx.ALL, style=wx.BORDER_SUNKEN, name="top_info_p")
         tinfo_sizer = wx.BoxSizer(wx.VERTICAL)
 
         self.tnfo_subpanel_top = FancyPanel(self.top_info_p, border=wx.ALL)
@@ -262,7 +262,7 @@ class CreditMiningPanel(FancyPanel):
         tinfo_sizer.Add(self.tnfo_subpanel_top, 1, wx.EXPAND)
         tinfo_sizer.Add(wx.StaticLine(self.top_info_p), 0, wx.ALL|wx.EXPAND, 5)
 
-        self.up_rate = wx.StaticText(self.top_info_p, -1, 'Up rate : -')
+        self.up_rate = wx.StaticText(self.top_info_p, -1, 'Up rate : -', name="up_rate")
         tinfo_sizer.Add(self.up_rate)
         self.dwn_rate = wx.StaticText(self.top_info_p, -1, 'Down rate : -')
         tinfo_sizer.Add(self.dwn_rate)
@@ -354,7 +354,7 @@ class CreditMiningPanel(FancyPanel):
 
     def CreateHeader(self, parent):
         if self.guiutility.frame.top_bg:
-            header = FancyPanel(parent, border=wx.BOTTOM)
+            header = FancyPanel(parent, border=wx.BOTTOM, name="cm_header")
             text = wx.StaticText(header, -1, 'Investment overview')
 
             def OnAddSource(event):
@@ -380,11 +380,11 @@ class CreditMiningPanel(FancyPanel):
             addsource.Bind(wx.EVT_LEFT_UP, OnAddSource)
             removesource = LinkStaticText(header, 'Remove', icon=None)
             removesource.Bind(wx.EVT_LEFT_UP, OnRemoveSource)
-            self.b_up = wx.StaticText(header, -1, 'Total bytes up: -')
-            self.b_down = wx.StaticText(header, -1, 'Total bytes down: -')
-            self.s_up = wx.StaticText(header, -1, 'Total speed up: -')
-            self.s_down = wx.StaticText(header, -1, 'Total speed down: -')
-            self.iv_sum = wx.StaticText(header, -1, 'Investment summary: -')
+            self.b_up = wx.StaticText(header, -1, 'Total bytes up: -',name="b_up")
+            self.b_down = wx.StaticText(header, -1, 'Total bytes down: -',name="b_down")
+            self.s_up = wx.StaticText(header, -1, 'Total speed up: -',name="s_up")
+            self.s_down = wx.StaticText(header, -1, 'Total speed down: -',name="s_down")
+            self.iv_sum = wx.StaticText(header, -1, 'Investment summary: -',name="iv_sum")
             _set_font(text, size_increment=2, fontweight=wx.FONTWEIGHT_BOLD)
             sizer = wx.BoxSizer(wx.VERTICAL)
             sizer.AddStretchSpacer()
