@@ -249,6 +249,29 @@ class GUIUtility(object):
                 # Hide list
                 self.frame.creditmininglist.Show(False)
 
+            if page == 'cmbeta':
+                # Show list
+                self.frame.creditminingpanel.Show(True)
+
+                # Open infohash
+                # if args:
+                #     self.frame.creditminingpanel.GetManager().refresh_or_expand(args[0])
+                # else:
+                #     items = self.frame.creditmininglist.GetExpandedItems()
+                #     if items:
+                #         items[0][1].expanded = False
+                #         self.frame.creditmininglist.Select(items[0][0])
+                #
+                # # Open infohash
+                # if args:
+                #     self.frame.creditmininglist.GetManager().refresh_or_expand(args[0])
+
+            elif self.guiPage == 'cmbeta':
+                # Hide list
+                self.frame.creditminingpanel.Show(False)
+
+
+
             if page == 'home':
                 self.frame.home.ResetSearchBox()
                 self.frame.home.Show()

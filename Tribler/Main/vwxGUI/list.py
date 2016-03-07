@@ -416,7 +416,6 @@ class ChannelSearchManager(BaseManager):
 
     def refresh(self, search_results=None):
         self._logger.debug("ChannelManager complete refresh")
-
         if self.category != 'searchresults':
             category = self.category
 
@@ -536,7 +535,7 @@ class ChannelSearchManager(BaseManager):
 class List(wx.BoxSizer):
 
     def __init__(self, columns, background, spacers=[0, 0], singleSelect=False,
-                 showChange=False, borders=True, parent=None):
+                 showChange=False, borders=True, parent=None, list_item_max=None):
         """
         Column alignment:
 
@@ -565,6 +564,7 @@ class List(wx.BoxSizer):
         self.singleSelect = singleSelect
         self.borders = borders
         self.showChange = showChange
+        self.list_item_max = list_item_max
         self.dirty = False
         self.hasData = False
         self.rawfilter = ''
@@ -625,7 +625,8 @@ class List(wx.BoxSizer):
     def CreateList(self, parent=None, listRateLimit=1):
         if not parent:
             parent = self
-        return ListBody(parent, self, self.columns, self.spacers[0], self.spacers[1], self.singleSelect, self.showChange, listRateLimit=listRateLimit)
+        return ListBody(parent, self, self.columns, self.spacers[0], self.spacers[1], self.singleSelect, self.showChange, listRateLimit=listRateLimit,
+                        list_item_max=self.list_item_max)
 
     def CreateFooter(self, parent):
         return ListFooter(parent)
@@ -928,6 +929,7 @@ class List(wx.BoxSizer):
         return re.search(self.filter, item[1][0].lower()) and ff
 
     def GetFilterMessage(self, empty=False):
+
         if self.rawfilter:
             if empty:
                 message = '0 items'
@@ -951,8 +953,8 @@ class List(wx.BoxSizer):
 class SizeList(List):
 
     def __init__(self, columns, background, spacers=[0, 0], singleSelect=False,
-                 showChange=False, borders=True, parent=None):
-        List.__init__(self, columns, background, spacers, singleSelect, showChange, borders, parent)
+                 showChange=False, borders=True, parent=None, list_item_max=None):
+        List.__init__(self, columns, background, spacers, singleSelect, showChange, borders, parent, list_item_max=None)
         self.prevStates = {}
         self.library_manager = self.guiutility.library_manager
 
@@ -2017,19 +2019,6 @@ class LibraryList(SizeList):
                            " into green when approaching a upload/download ratio of %.1f" % seeding_ratio
         return header, message
 
-class CpanelCheckListCtrl(wx.ListCtrl, CheckListCtrlMixin):
-    def __init__(self, parent, listtype=None):
-        wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT | wx.LC_NO_HEADER)
-        CheckListCtrlMixin.__init__(self)
-        self.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.OnItemActivated)
-        self.listtype = type
-        self.boosting_manager = BoostingManager.get_instance()
-
-    def OnItemActivated(self, evt):
-        self.ToggleItem(evt.m_itemIndex)
-
-    def OnCheckItem(self, index, flag):
-        self.boosting_manager.set_enable_mining(self.GetItemText(index), flag)
 
 class CreditMiningList(SizeList):
 
@@ -2060,85 +2049,50 @@ class CreditMiningList(SizeList):
         ColumnsManager.getInstance().setColumns(CreditMiningListItem, columns)
 
         SizeList.__init__(self, None, LIST_GREY, [0, 0], False, parent=parent)
+        # self.header.SetBackgroundColour(wx.WHITE)
+        # self.header.SetBorderColour(SEPARATOR_GREY)
 
-        self.header.SetBackgroundColour(wx.WHITE)
-        self.header.SetBorderColour(SEPARATOR_GREY)
-
-    def _PostInit(self):
-        self.header = self.CreateHeader(self.parent)
-        if self.header:
-            self.Add(self.header, 0, wx.EXPAND)
-
-        self.list = self.CreateList(self.parent)
-
-        hsizer = wx.BoxSizer(wx.HORIZONTAL)
-
-        self.controlPanel = ScrolledPanel(self.parent,-1)
-        self.controlPanel.SetupScrolling()
-
-        self.cp_sizer = wx.BoxSizer(wx.VERTICAL)
-
-        stext_cp = wx.StaticText(self.controlPanel, 1, 'Control Panel')
-        stext_rss = wx.StaticText(self.controlPanel, 1, 'RSS source')
-        stext_chn = wx.StaticText(self.controlPanel, 1, 'Channels source')
-        stext_dir = wx.StaticText(self.controlPanel, 1, 'Directory source')
-
-        self.rsslist = CpanelCheckListCtrl(self.controlPanel, "rss")
-        self.rsslist.InsertColumn(0,'RSS Source')
-        self.controlPanel.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSourceItemSelected, self.rsslist)
-        self.controlPanel.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.OnSourceItemDeselected, self.rsslist)
-
-        self.chnlist = CpanelCheckListCtrl(self.controlPanel, "channels")
-        self.chnlist.InsertColumn(0,'Channel Source')
-        self.controlPanel.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSourceItemSelected, self.chnlist)
-        self.controlPanel.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.OnSourceItemDeselected, self.chnlist)
-
-        self.dirlist = CpanelCheckListCtrl(self.controlPanel, "dir")
-        self.dirlist.InsertColumn(0,'Dir Source')
-        self.controlPanel.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnSourceItemSelected, self.dirlist)
-        self.controlPanel.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.OnSourceItemDeselected, self.dirlist)
-
-        self.cp_sizer.Add(stext_cp)
-        self.cp_sizer.Add(stext_rss)
-        self.cp_sizer.Add(self.rsslist, 0, wx.EXPAND | wx.LEFT, 20)
-        self.cp_sizer.Add(stext_chn)
-        self.cp_sizer.Add(self.chnlist, 0, wx.EXPAND | wx.LEFT, 20)
-        self.cp_sizer.Add(stext_dir)
-        self.cp_sizer.Add(self.dirlist, 0, wx.EXPAND | wx.LEFT, 20)
-
-        self.controlPanel.SetSizer(self.cp_sizer)
-        hsizer.Add(self.controlPanel, 1, wx.EXPAND)
-
-        # left and right borders
-        if self.borders:
-            listSizer = wx.BoxSizer(wx.HORIZONTAL)
-            self.leftLine = wx.Panel(self.parent, size=(1, -1))
-            self.rightLine = wx.Panel(self.parent, size=(1, -1))
-
-            listSizer.Add(self.leftLine, 0, wx.EXPAND)
-            listSizer.Add(self.list, 1, wx.EXPAND)
-            listSizer.Add(self.rightLine, 0, wx.EXPAND)
-            hsizer.Add(listSizer, 3, wx.EXPAND)
-        else:
-            hsizer.Add(self.list, 1, wx.EXPAND)
-
-        self.Add(hsizer, 1, wx.EXPAND)
-        self.footer = self.CreateFooter(self.parent)
-
-        if self.footer:
-            self.Add(self.footer, 0, wx.EXPAND)
-
-        self.SetBackgroundColour(self.background)
-        self.Layout()
-
-        self.list.Bind(wx.EVT_SIZE, self.OnSize)
-
-        self.refresh_source()
+    # def _PostInit(self):
+    #     return
+    #
+        # self.header = self.CreateHeader(self.parent)
+    #     if self.header:
+    #         self.Add(self.header, 0, wx.EXPAND)
+    #
+    #     self.list = self.CreateList(self.parent)
+    #
+    #     # left and right borders
+    #     if self.borders:
+    #         listSizer = wx.BoxSizer(wx.HORIZONTAL)
+    #         self.leftLine = wx.Panel(self.parent, size=(1, -1))
+    #         self.rightLine = wx.Panel(self.parent, size=(1, -1))
+    #
+    #         listSizer.Add(self.leftLine, 0, wx.EXPAND)
+    #         listSizer.Add(self.list, 1, wx.EXPAND)
+    #         listSizer.Add(self.rightLine, 0, wx.EXPAND)
+    #         hsizer.Add(listSizer, 3, wx.EXPAND)
+    #     else:
+    #         hsizer.Add(self.list, 1, wx.EXPAND)
+    #
+    #     self.Add(hsizer, 1, wx.EXPAND)
+    #     self.footer = self.CreateFooter(self.parent)
+    #
+    #     if self.footer:
+    #         self.Add(self.footer, 0, wx.EXPAND)
+    #
+    #     self.SetBackgroundColour(self.background)
+    #     self.Layout()
+    #
+    #     self.list.Bind(wx.EVT_SIZE, self.OnSize)
+    #
+    #     self.refresh_source()
 
     def GetManager(self):
         if getattr(self, 'manager', None) == None:
             self.manager = CreditMiningSearchManager(self)
         return self.manager
+
+
 
     @warnWxThread
     def refresh_source(self):
@@ -2175,97 +2129,62 @@ class CreditMiningList(SizeList):
             self.controlPanel.Layout()
             self.controlPanel.SetupScrolling()
 
-    def OnSourceItemSelected(self, event):
-        source = event.GetText()
-        try:
-            isdir = os.path.isdir(source)
-        except TypeError:
-            isdir = False
-
-        if isdir:
-            listobj = self.dirlist
-        elif source.startswith('http://') or source.startswith('https://'):
-            listobj = self.rsslist
-        else:
-            listobj = self.chnlist
-
-        #TODO(ardhi) : only shows selected items in the mining list (can multiselect)
-        pass
-
-    def OnSourceItemDeselected(self, event):
-        source = event.GetText()
-        try:
-            isdir = os.path.isdir(source)
-        except TypeError:
-            isdir = False
-
-        if isdir:
-            listobj = self.dirlist
-        elif source.startswith('http://') or source.startswith('https://'):
-            listobj = self.rsslist
-        else:
-            listobj = self.chnlist
-
-        # print "list %s idx %s DEselected " %(listobj.listtype, event.m_itemIndex)
-        #TODO(ardhi) : remove deselected items from view
-        pass
-
     @warnWxThread
     def CreateHeader(self, parent):
-        if self.guiutility.frame.top_bg:
-            header = FancyPanel(parent, border=wx.BOTTOM)
-            text = wx.StaticText(header, -1, 'Investment overview')
+        # if self.guiutility.frame.top_bg:
+        #     header = FancyPanel(parent, border=wx.BOTTOM)
+        #     text = wx.StaticText(header, -1, 'Investment overview')
+        #
+        #     def OnAddSource(event):
+        #         dlg = AddBoostingSource(None)
+        #         if dlg.ShowModal() == wx.ID_OK:
+        #             source, archive = dlg.GetValue()
+        #             if source:
+        #                 self.boosting_manager.add_source(source)
+        #                 self.boosting_manager.set_archive(source, archive)
+        #                 self.refresh_source()
+        #
+        #         dlg.Destroy()
+        #
+        #     def OnRemoveSource(event):
+        #         dlg = RemoveBoostingSource(None)
+        #         if dlg.ShowModal() == wx.ID_OK and dlg.GetValue():
+        #             self.boosting_manager.remove_source(dlg.GetValue())
+        #             self.GetManager().refresh()
+        #         dlg.Destroy()
+        #
+        #     addsource = LinkStaticText(header, 'Add', icon=None)
+        #     addsource.Bind(wx.EVT_LEFT_UP, OnAddSource)
+        #     removesource = LinkStaticText(header, 'Remove', icon=None)
+        #     removesource.Bind(wx.EVT_LEFT_UP, OnRemoveSource)
+        #     self.b_up = wx.StaticText(header, -1, 'Total bytes up: -')
+        #     self.b_down = wx.StaticText(header, -1, 'Total bytes down: -')
+        #     self.s_up = wx.StaticText(header, -1, 'Total speed up: -')
+        #     self.s_down = wx.StaticText(header, -1, 'Total speed down: -')
+        #     self.iv_sum = wx.StaticText(header, -1, 'Investment summary: -')
+        #     _set_font(text, size_increment=2, fontweight=wx.FONTWEIGHT_BOLD)
+        #     sizer = wx.BoxSizer(wx.VERTICAL)
+        #     sizer.AddStretchSpacer()
+        #     titleSizer = wx.BoxSizer(wx.HORIZONTAL)
+        #     titleSizer.Add(text, 0, wx.ALIGN_BOTTOM | wx.RIGHT, 5)
+        #     titleSizer.Add(wx.StaticText(header, -1, '('), 0, wx.ALIGN_BOTTOM)
+        #     titleSizer.Add(addsource, 0, wx.ALIGN_BOTTOM)
+        #     titleSizer.Add(wx.StaticText(header, -1, '/'), 0, wx.ALIGN_BOTTOM)
+        #     titleSizer.Add(removesource, 0, wx.ALIGN_BOTTOM)
+        #     titleSizer.Add(wx.StaticText(header, -1, ' boosting source)'), 0, wx.ALIGN_BOTTOM)
+        #     sizer.Add(titleSizer, 0, wx.LEFT | wx.BOTTOM, 5)
+        #     sizer.Add(self.b_up, 0, wx.LEFT, 5)
+        #     sizer.Add(self.b_down, 0, wx.LEFT, 5)
+        #     sizer.Add(self.s_up, 0, wx.LEFT, 5)
+        #     sizer.Add(self.s_down, 0, wx.LEFT, 5)
+        #     sizer.Add(self.iv_sum, 0, wx.LEFT, 5)
+        #     sizer.AddStretchSpacer()
+        #     header.SetSizer(sizer)
+        #     header.SetMinSize((-1, 100))
+        # else:
+        #     raise NotYetImplementedException('')
 
-            def OnAddSource(event):
-                dlg = AddBoostingSource(None)
-                if dlg.ShowModal() == wx.ID_OK:
-                    source, archive = dlg.GetValue()
-                    if source:
-                        self.boosting_manager.add_source(source)
-                        self.boosting_manager.set_archive(source, archive)
-                        self.refresh_source()
-
-                dlg.Destroy()
-
-            def OnRemoveSource(event):
-                dlg = RemoveBoostingSource(None)
-                if dlg.ShowModal() == wx.ID_OK and dlg.GetValue():
-                    self.boosting_manager.remove_source(dlg.GetValue())
-                    self.GetManager().refresh()
-                dlg.Destroy()
-
-            addsource = LinkStaticText(header, 'Add', icon=None)
-            addsource.Bind(wx.EVT_LEFT_UP, OnAddSource)
-            removesource = LinkStaticText(header, 'Remove', icon=None)
-            removesource.Bind(wx.EVT_LEFT_UP, OnRemoveSource)
-            self.b_up = wx.StaticText(header, -1, 'Total bytes up: -')
-            self.b_down = wx.StaticText(header, -1, 'Total bytes down: -')
-            self.s_up = wx.StaticText(header, -1, 'Total speed up: -')
-            self.s_down = wx.StaticText(header, -1, 'Total speed down: -')
-            self.iv_sum = wx.StaticText(header, -1, 'Investment summary: -')
-            _set_font(text, size_increment=2, fontweight=wx.FONTWEIGHT_BOLD)
-            sizer = wx.BoxSizer(wx.VERTICAL)
-            sizer.AddStretchSpacer()
-            titleSizer = wx.BoxSizer(wx.HORIZONTAL)
-            titleSizer.Add(text, 0, wx.ALIGN_BOTTOM | wx.RIGHT, 5)
-            titleSizer.Add(wx.StaticText(header, -1, '('), 0, wx.ALIGN_BOTTOM)
-            titleSizer.Add(addsource, 0, wx.ALIGN_BOTTOM)
-            titleSizer.Add(wx.StaticText(header, -1, '/'), 0, wx.ALIGN_BOTTOM)
-            titleSizer.Add(removesource, 0, wx.ALIGN_BOTTOM)
-            titleSizer.Add(wx.StaticText(header, -1, ' boosting source)'), 0, wx.ALIGN_BOTTOM)
-            sizer.Add(titleSizer, 0, wx.LEFT | wx.BOTTOM, 5)
-            sizer.Add(self.b_up, 0, wx.LEFT, 5)
-            sizer.Add(self.b_down, 0, wx.LEFT, 5)
-            sizer.Add(self.s_up, 0, wx.LEFT, 5)
-            sizer.Add(self.s_down, 0, wx.LEFT, 5)
-            sizer.Add(self.iv_sum, 0, wx.LEFT, 5)
-            sizer.AddStretchSpacer()
-            header.SetSizer(sizer)
-            header.SetMinSize((-1, 100))
-        else:
-            raise NotYetImplementedException('')
-
-        return header
+        return None
 
     @warnWxThread
     def CreateFooter(self, parent):
@@ -2350,17 +2269,17 @@ class CreditMiningList(SizeList):
         seeding_stats = [ds.get_seeding_statistics() for ds in boosting_dslist if ds.get_seeding_statistics()]
         self.tot_bytes_up = sum([stat['total_up'] for stat in seeding_stats])
         self.tot_bytes_dwn = sum([stat['total_down'] for stat in seeding_stats])
-        self.b_up.SetLabel('Total bytes up: ' + size_format(self.tot_bytes_up))
-        self.b_down.SetLabel('Total bytes down: ' + size_format(self.tot_bytes_dwn))
+        # self.b_up.SetLabel('Total bytes up: ' + size_format(self.tot_bytes_up))
+        # self.b_down.SetLabel('Total bytes down: ' + size_format(self.tot_bytes_dwn))
 
-        if self.tot_bytes_dwn:
-            self.iv_sum.SetLabel(' Investment summary: %f' %(float(self.tot_bytes_up)/float(self.tot_bytes_dwn)))
-
-        self.s_up.SetLabel('Total speed up: ' + speed_format(sum([ds.get_current_speed('up') for ds in boosting_dslist])))
-        self.s_down.SetLabel('Total speed down: ' + speed_format(sum([ds.get_current_speed('down') for ds in boosting_dslist])))
-
-        if newFilter:
-            self.newfilter = False
+        # if self.tot_bytes_dwn:
+        #     self.iv_sum.SetLabel(' Investment summary: %f' %(float(self.tot_bytes_up)/float(self.tot_bytes_dwn)))
+        #
+        # self.s_up.SetLabel('Total speed up: ' + speed_format(sum([ds.get_current_speed('up') for ds in boosting_dslist])))
+        # self.s_down.SetLabel('Total speed down: ' + speed_format(sum([ds.get_current_speed('down') for ds in boosting_dslist])))
+        #
+        # if newFilter:
+        #     self.newfilter = False
 
         self.oldDS = dict([(infohash, item.original_data.ds) for infohash, item in self.list.items.iteritems()])
 
@@ -2369,7 +2288,10 @@ class CreditMiningList(SizeList):
         SizeList.SetData(self, data)
 
         if len(data) > 0:
-            data = [(file.infohash, ['- / -', '- / -', '%d / %d' % (file.num_seeders, file.num_leechers), '', file.infohash, '', '-1'], file, CreditMiningListItem) for file in data]
+            data = [(file.infohash, ['- / -', '- / -', '%d / %d' %
+                                     (file.num_seeders, file.num_leechers), '', file.infohash,
+                     self.boosting_manager.torrents.get(file.infohash,None).get('source', ''), '-1'],
+                     file, CreditMiningListItem) for file in data]
         else:
             self.list.ShowMessage("No credit mining data available.")
             self.SetNrResults(0)
@@ -2380,7 +2302,8 @@ class CreditMiningList(SizeList):
     def RefreshData(self, key, data):
         List.RefreshData(self, key, data)
 
-        data = (data.infohash, ['-', '-', '%d / %d' % (data.num_seeders, data.num_leechers), '', data.infohash, '','-1'], data)
+        data = (data.infohash, ['-', '-', '%d / %d' % (data.num_seeders, data.num_leechers), '', data.infohash,
+                                self.boosting_manager.torrents.get(data.infohash, None).get('source', ''),'-1'], data)
         self.list.RefreshData(key, data)
 
     def SetNrResults(self, nr):
@@ -2396,8 +2319,22 @@ class CreditMiningList(SizeList):
                 actitem.Highlight()
             self.initnumitems = True
 
+    def OnFilter(self,keyword):
+        pass
+
     def MatchFilter(self, item):
-        return True
+        if not self.rawfilter:
+            return False
+
+        source = item[1][5]
+        match = (hexlify(self.rawfilter) if len(hexlify(self.rawfilter)) == 40 else self.rawfilter) in source
+        return match
+
+    def GetFilterMessage(self, empty=False):
+        if empty:
+            return 'Empty','No credit mining torrent to show'
+        else:
+            return None,'end of list'
 
     def MatchFFilter(self, item):
         return True
@@ -2624,6 +2561,9 @@ class ActivitiesList(List):
         if sys.platform != 'darwin':
             data_list.append((6, ['Videoplayer'], None, ActivityListItem))
 
+        data_list.append((7, ['CM List beta'], None, ActivityListItem))
+
+
         self.list.SetData(data_list)
         self.ResizeListItems()
         self.DisableItem(2)
@@ -2631,6 +2571,8 @@ class ActivitiesList(List):
             self.DisableItem(6)
         self.DisableCollapse()
         self.selectTab('home')
+
+        self.list.GetItem(7).num_items.Show(False)
 
         # Create expanded panels in advance
         channels_item = self.list.GetItem(3)
@@ -2721,6 +2663,8 @@ class ActivitiesList(List):
             return self.expandedPanel_videoplayer
         elif item.data[0] == 'Credit Mining':
             self.guiutility.ShowPage('creditmining')
+        elif item.data[0] == 'CM List beta':
+            self.guiutility.ShowPage('cmbeta')
         return True
 
     def OnCollapse(self, item, panel, from_expand):
@@ -2789,6 +2733,8 @@ class ActivitiesList(List):
             itemKey = 5
         elif tab == 'videoplayer':
             itemKey = 6
+        elif tab == 'cmbeta':
+            itemKey = 7
         if itemKey:
             wx.CallAfter(self.Select, itemKey, True)
         return
@@ -2809,7 +2755,7 @@ class ActivitiesList(List):
         if curPage < 0:
             curPage = len(pages) - 1
 
-        pageNames = ['home', 'search_results', 'channels', 'my_files', 'creditmining', 'videoplayer']
+        pageNames = ['home', 'search_results', 'channels', 'my_files', 'creditmining', 'videoplayer', 'cmbeta']
         for i in self.settings.keys():
             pageNames.pop(i - 1)
         self.guiutility.ShowPage(pageNames[curPage])

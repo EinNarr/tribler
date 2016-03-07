@@ -18,6 +18,7 @@ from collections import defaultdict
 from hashlib import sha1
 
 import libtorrent as lt
+import sys
 
 from Tribler.Core.DownloadConfig import DownloadStartupConfig
 from Tribler.Core.TorrentChecker.session import MAX_TRACKER_MULTI_SCRAPE
@@ -31,6 +32,8 @@ from Tribler.community.allchannel.community import AllChannelCommunity
 from Tribler.community.channel.community import ChannelCommunity
 from Tribler.dispersy.taskmanager import TaskManager
 from Tribler.dispersy.util import call_on_reactor_thread
+
+from Tribler.Main.vwxGUI.SearchGridManager import ChannelManager as cm
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -203,15 +206,26 @@ class BoostingManager(TaskManager):
                 continue
 
     def set_enable_mining(self, source, mining_bool=True, force_restart=False):
+        tor_not_exist = True
+
         for ihash, tor in self.torrents.iteritems():
             if tor['source'] == source:
+                tor_not_exist = False
                 self.torrents[ihash]['enabled'] = mining_bool
 
                 if (not mining_bool):
                     self.stop_download(tor)
 
+        # this only happen via new channel boosting interface
+        if tor_not_exist and mining_bool and not (source in self.boosting_sources.keys()):
+            self.add_source(source)
+            self.set_archive(source, False)
+            self.set_enable_mining(source, mining_bool)
+
         string_to_source = lambda s: s.decode('hex') if len(s) == 40 and not (os.path.isdir(s) or s.startswith('http://')) else s
         self.boosting_sources[string_to_source(source)].enabled = mining_bool
+
+        logger.info("Set mining source %s %s", source, mining_bool)
 
         if force_restart:
             self._select_torrent()
@@ -263,6 +277,7 @@ class BoostingManager(TaskManager):
             except TypeError:
                 isdir = False
 
+
             if isdir:
                 self.boosting_sources[source] = DirectorySource(*args)
             elif source.startswith('http://') or source.startswith('https://'):
@@ -271,6 +286,8 @@ class BoostingManager(TaskManager):
                 self.boosting_sources[source] = ChannelSource(*args)
             else:
                 logger.error("Cannot add unknown source %s", source)
+
+            logger.info("Added source %s", source)
         else:
             logger.info("Already have source %s", source)
 
@@ -382,9 +399,13 @@ class BoostingManager(TaskManager):
                         -(len(infohashes) % MAX_TRACKER_MULTI_SCRAPE):]))
                 else:
                     reply = scrape_tcp(tracker, infohashes)
-                logger.debug("Got reply from tracker %s : %s", tracker, reply)
-            except:
-                logger.exception("Did not get reply from tracker %s", tracker)
+
+                #RD : hack for readable infohash
+                logger.debug("Got reply from tracker %s : %s", tracker,
+                             {hexlify(k): v for k, v in reply.items()})
+            except Exception as e:
+                type, obj, _ = sys.exc_info()
+                logger.error("Did not get reply from tracker %s. Reason : %s,%s", tracker, obj, str(type))
             else:
                 for infohash, info in reply.iteritems():
                     if info['complete'] > results[infohash][0]:
@@ -582,6 +603,8 @@ class BoostingSource(object):
     def _update(self):
         pass
 
+    def getSource(self):
+        return self.source
 
 class ChannelSource(BoostingSource):
 
@@ -590,14 +613,13 @@ class ChannelSource(BoostingSource):
 
         self.channel_id = None
 
-        self.gui_util = GUIUtility.getInstance()
+        self.channel = None
 
+        self.gui_util = GUIUtility.getInstance()
         self.channelcast_db = self.session.lm.channelcast_db
 
         self.community = None
         self.database_updated = True
-
-
 
         self.session.add_observer(self._on_database_updated, NTFY_TORRENTS, [NTFY_INSERT, NTFY_UPDATE])
         self.session.lm.threadpool.add_task(lambda cid=dispersy_cid: self._load(cid), 0, task_name=self.source)
@@ -639,6 +661,8 @@ class ChannelSource(BoostingSource):
             if self.community and self.community._channel_id:
                 self.channel_id = self.community._channel_id
 
+                self.channel = self.gui_util.channelsearch_manager.getChannel(self.channel_id)
+
                 self.session.lm.threadpool.add_task(self._update, 0, task_name=str(self.source)+"_update")
                 logger.info("Got channel id %s", self.channel_id)
             else:
@@ -649,7 +673,7 @@ class ChannelSource(BoostingSource):
             join_community()
         except:
             logger.info("Channel %s was not ready, waits for next interval", hexlify(self.source))
-            self.session.lm.threadpool.add_task(lambda cid=self.source: self._load(cid), 100, task_name=self.source)
+            self.session.lm.threadpool.add_task(lambda cid=self.source: self._load(cid), 10, task_name=self.source)
 
 
     def _check_tor(self):
@@ -693,15 +717,13 @@ class ChannelSource(BoostingSource):
         if len(self.torrents) < self.max_torrents:
 
             if self.database_updated:
-                from Tribler.Main.vwxGUI.SearchGridManager import ChannelManager as cm
-                cm = ChannelManager.getInstance()
 
                 CHANTOR_DB = ['ChannelTorrents.channel_id', 'Torrent.torrent_id', 'infohash', '""', 'length', 'category', 'status', 'num_seeders', 'num_leechers', 'ChannelTorrents.id', 'ChannelTorrents.dispersy_id', 'ChannelTorrents.name', 'Torrent.name', 'ChannelTorrents.description', 'ChannelTorrents.time_stamp', 'ChannelTorrents.inserted']
 
                 try:
                     torrent_values = self.channelcast_db.getTorrentsFromChannelId(self.channel_id, True, CHANTOR_DB, self.max_torrents)
 
-                    listtor = cm._createTorrents(torrent_values, True,
+                    listtor = self.gui_util.channelsearch_manager._createTorrents(torrent_values, True,
                                                  {self.channel_id: self.channelcast_db.getChannel(self.channel_id)})[2]
                     self.unavail_torrent = {t.infohash:t for t in listtor}
 
@@ -716,6 +738,10 @@ class ChannelSource(BoostingSource):
             # Unused arguments
             pass
         self.database_updated = True
+
+    def getSource(self):
+        return self.channel.name if self.channel else None
+
 
 class RSSFeedSource(BoostingSource):
 

@@ -38,6 +38,7 @@ from Tribler.Main.Dialogs.systray import ABCTaskBarIcon
 from Tribler.Main.Utility.GuiDBHandler import startWorker
 from Tribler.Main.globals import DefaultDownloadStartupConfig
 from Tribler.Main.vwxGUI import DEFAULT_BACKGROUND, SEPARATOR_GREY
+from Tribler.Main.vwxGUI.CreditMiningPanel import CreditMiningPanel
 from Tribler.Main.vwxGUI.GuiUtility import GUIUtility, forceWxThread
 from Tribler.Main.vwxGUI.SRstatusbar import SRstatusbar
 from Tribler.Main.vwxGUI.TopSearchPanel import TopSearchPanel
@@ -187,6 +188,10 @@ class MainFrame(wx.Frame):
         self.playlist = Playlist(self.splitter_top_window)
         self.playlist.Show(False)
 
+
+        self.creditminingpanel = CreditMiningPanel(self)
+        self.creditminingpanel.Show(False)
+
         # Populate the bottom window
         self.splitter_bottom = wx.BoxSizer(wx.HORIZONTAL)
         self.torrentdetailspanel = TorrentDetails(self.splitter_bottom_window)
@@ -261,6 +266,8 @@ class MainFrame(wx.Frame):
 
         if self.videoparentpanel:
             hSizer.Add(self.videoparentpanel, 1, wx.EXPAND)
+
+        hSizer.Add(self.creditminingpanel, 1, wx.EXPAND)
 
         self.SetSizer(vSizer)
 

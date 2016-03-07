@@ -3,6 +3,10 @@ import wx
 import sys
 import os
 import datetime
+from binascii import hexlify
+from wx.lib.scrolledpanel import ScrolledPanel
+
+import math
 
 from Tribler.community.tunnel.hidden_community import HiddenTunnelCommunity
 from Tribler.community.tunnel.routing import Hop
@@ -21,7 +25,7 @@ from Tribler.Core.simpledefs import (NTFY_TORRENTS, NTFY_CHANNELCAST, NTFY_INSER
                                      NTFY_ONCREATED_E2E, NTFY_IP_CREATED, NTFY_RP_CREATED)
 from Tribler.Core.Session import Session
 
-from Tribler.Main.vwxGUI import SEPARATOR_GREY, DEFAULT_BACKGROUND, LIST_BLUE, THUMBNAIL_FILETYPES
+from Tribler.Main.vwxGUI import SEPARATOR_GREY, DEFAULT_BACKGROUND, LIST_BLUE, THUMBNAIL_FILETYPES, warnWxThread
 from Tribler.Main.vwxGUI.GuiUtility import GUIUtility, forceWxThread
 from Tribler.Main.Utility.GuiDBHandler import startWorker, GUI_PRI_DISPERSY
 from Tribler.Main.vwxGUI.list_header import DetailHeader
@@ -29,7 +33,7 @@ from Tribler.Main.vwxGUI.list_body import ListBody
 from Tribler.Main.vwxGUI.list_item import ThumbnailListItemNoTorrent
 from Tribler.Main.vwxGUI.list_footer import ListFooter
 from Tribler.Main.vwxGUI.widgets import (SelectableListCtrl, TextCtrlAutoComplete, BetterText as StaticText,
-                                         LinkStaticText)
+                                         LinkStaticText, FancyPanel, HorizontalGauge)
 from Tribler.Main.vwxGUI.GuiImageManager import GuiImageManager
 from Tribler.Core.CacheDB.sqlitecachedb import bin2str
 from Tribler.Core.Video.VideoUtility import considered_xxx
@@ -39,11 +43,15 @@ from Tribler.Main.Utility.utility import size_format
 
 class Home(wx.Panel):
 
+    COLUMN_SIZE = 3
+
     def __init__(self, parent):
         wx.Panel.__init__(self, parent)
         self.guiutility = GUIUtility.getInstance()
+        self.gui_image_manager = GuiImageManager.getInstance()
+        self.session = self.guiutility.utility.session
 
-        self.SetBackgroundColour(DEFAULT_BACKGROUND)
+        self.channels = {None:None}
 
         vSizer = wx.BoxSizer(wx.VERTICAL)
         vSizer.AddStretchSpacer()
@@ -97,36 +105,63 @@ class Home(wx.Panel):
         hSizer.Add(StaticText(self, -1, " to see what others are sharing"))
         textSizer.Add(hSizer)
 
-        vSizer.Add(textSizer, 0, wx.ALIGN_CENTER)
+        vSizer.Add(textSizer, 1, wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_TOP)
         vSizer.AddStretchSpacer()
 
-        self.aw_panel = ArtworkPanel(self)
-        self.aw_panel.SetMinSize((-1, 275))
-        # TODO(lipu): enable this when metadata PR is merged
-        #self.aw_panel.Show(self.guiutility.ReadGuiSetting('show_artwork', True))
-        self.aw_panel.Show(False)
-        vSizer.Add(self.aw_panel, 0, wx.EXPAND)
+        # add channel panel as overview
+        self.channel_panel = ScrolledPanel(self, 1)
+
+        self.chn_sizer = wx.FlexGridSizer(0,self.COLUMN_SIZE,5,5)
+        for i in range(0,self.COLUMN_SIZE):
+            self.chn_sizer.AddGrowableCol(i,1)
+
+        self.channel_panel.SetSizer(self.chn_sizer)
+        self.channel_panel.SetupScrolling()
+
+        vSizer.Add(wx.StaticLine(self), 0, wx.ALL|wx.EXPAND, 5)
+        vSizer.Add(self.channel_panel, 5, wx.EXPAND)
+
+        # TODO (ardhi) : enable this once the layout finishes
+        # # video thumbnail panel
+        # self.aw_panel = ArtworkPanel(self)
+        # self.aw_panel.SetMinSize((-1, 275))
+        # # TODO(lipu): enable this when metadata PR is merged
+        # #self.aw_panel.Show(self.guiutility.ReadGuiSetting('show_artwork', True))
+        # self.aw_panel.Show(False)
+        # vSizer.Add(self.aw_panel, 0, wx.EXPAND)
+
+        self.channel_panel.Show(False)
 
         self.SetSizer(vSizer)
         self.Layout()
-
         self.Bind(wx.EVT_RIGHT_UP, self.OnRightClick)
-
         self.SearchFocus()
+
+        self.session.lm.threadpool.add_task(self.RefreshChannels, 10,
+                                            task_name=str(self.__class__)+"_refreshchannel")
+
 
     def OnRightClick(self, event):
         menu = wx.Menu()
         itemid = wx.NewId()
-        menu.AppendCheckItem(itemid, 'Show recent videos')
-        menu.Check(itemid, self.aw_panel.IsShown())
+        # menu.AppendCheckItem(itemid, 'Show recent videos')
+        menu.AppendCheckItem(itemid, 'Show popular channels')
+        # menu.Check(itemid, self.aw_panel.IsShown())
+        menu.Check(itemid, self.channel_panel.IsShown())
 
-        def toggleArtwork(event):
-            show = not self.aw_panel.IsShown()
-            self.aw_panel.Show(show)
-            self.guiutility.WriteGuiSetting("show_artwork", show)
+        # def toggleArtwork(event):
+        #     show = not self.aw_panel.IsShown()
+        #     self.aw_panel.Show(show)
+        #     self.guiutility.WriteGuiSetting("show_artwork", show)
+        #     self.Layout()
+
+        def toggleChannels(event):
+            show = not self.channel_panel.IsShown()
+            self.channel_panel.Show(show)
+            # self.guiutility.WriteGuiSetting("show_artwork", show)
             self.Layout()
 
-        menu.Bind(wx.EVT_MENU, toggleArtwork, id=itemid)
+        menu.Bind(wx.EVT_MENU, toggleChannels, id=itemid)
 
         if menu:
             self.PopupMenu(menu, self.ScreenToClient(wx.GetMousePosition()))
@@ -148,6 +183,85 @@ class Home(wx.Panel):
     def SearchFocus(self):
         self.searchBox.SetFocus()
         self.searchBox.SelectAll()
+
+    def CreateChannelItem(self, parent, channel, torrents):
+        from Tribler.Main.Utility.GuiDBTuples import Channel as ChannelObj
+        assert isinstance(channel, ChannelObj)
+
+        STRING_LENGTH = 40
+
+        vsizer = wx.BoxSizer(wx.VERTICAL)
+        hsizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        chn_pn = wx.Panel(parent, -1, style=wx.SUNKEN_BORDER)
+        cb_chn = wx.CheckBox(chn_pn, 1, "CHANNEL "+channel.name.encode('utf-8'))
+
+        normalministar = self.gui_image_manager.getImage(u"ministar.png")
+        ministar = self.gui_image_manager.getImage(u"ministarEnabled.png")
+
+        control = HorizontalGauge(chn_pn, normalministar, ministar, 5)
+
+        # count popularity
+        pop = channel.nr_favorites
+        if pop <= 0:
+            control.SetPercentage(0)
+        else:
+            control.SetPercentage(pop/float(10000))
+
+        control.SetToolTipString('%s users marked this channel as one of their favorites.' % pop)
+        hsizer.Add(cb_chn, 0, wx.ALIGN_LEFT)
+        hsizer.AddStretchSpacer()
+        hsizer.Add(control, 0, wx.ALIGN_RIGHT)
+
+        vsizer.Add(hsizer, 0, wx.EXPAND)
+
+        for t in torrents:
+            t = wx.StaticText(chn_pn, 1, t.name[:STRING_LENGTH] + (t.name[STRING_LENGTH:] and '...'))
+            vsizer.Add(t, 0, wx.EXPAND | wx.LEFT, 25)
+
+        chn_pn.SetSizer(vsizer)
+        return chn_pn
+
+    def RefreshChannels(self):
+        def do_query():
+            TORRENT_AMOUNT = 3
+
+            _, channels = self.guiutility.channelsearch_manager.getPopularChannels()
+
+            dict_channels = {channel.dispersy_cid:channel for channel in channels}
+            dict_torrents = {channel.dispersy_cid:None for channel in channels}
+            new_channels_ids = list(set(dict_channels.keys()) - set(self.channels.keys()))
+
+            for c in new_channels_ids:
+                channel = dict_channels.get(c)
+                torrents = self.guiutility.channelsearch_manager.getTorrentsFromChannel\
+                    (channel, limit=TORRENT_AMOUNT)[2]
+                dict_torrents[c] = torrents
+            return (dict_channels, dict_torrents, new_channels_ids)
+
+        def do_gui(delayedResult):
+            (dict_channels,dict_torrents, new_channels_ids) = delayedResult.get()
+            count = 0
+
+            for c in new_channels_ids:
+                self.chn_sizer.Add(self.CreateChannelItem(self.channel_panel,
+                                                          dict_channels.get(c),
+                                                          dict_torrents.get(c)), 1, wx.EXPAND)
+                count += 1
+                self.channels[c] = dict_channels.get(c)
+                if count >= 10:
+                    break
+
+            if new_channels_ids:
+                self.chn_sizer.Layout()
+                self.channel_panel.SetupScrolling()
+
+        if self.guiutility.frame.ready and isinstance(self.guiutility.GetSelectedPage(), Home):
+            startWorker(do_gui, do_query, retryOnBusy=True, priority=GUI_PRI_DISPERSY)
+
+        if len(self.channels) < 50:
+            self.session.lm.threadpool.add_task_in_thread(self.RefreshChannels, 10,
+                                            task_name=str(self.__class__)+"_refreshchannel")
 
 
 class Stats(wx.Panel):
