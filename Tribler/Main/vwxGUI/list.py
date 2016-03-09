@@ -2223,9 +2223,29 @@ class CreditMiningList(SizeList):
                  self.list.SetData()  # basically this means execute filter again
 
         boosting_dslist = [ds for ds in dslist if ds.get_download().get_def().get_infohash() in new_keys]
+
+        # init source statistics
+        for _, src in self.boosting_manager.boosting_sources.items():
+            src.storage_used = 0
+            src.av_uprate = 0
+            src.av_dwnrate = 0
+
+
         for item in self.list.items.itervalues():
             ds = item.original_data.ds
+            torrent_infohash = item.original_data.infohash
+            source_str = self.boosting_manager.torrents[torrent_infohash]['source']
+
+            try:
+                int(source_str, 16)
+                source = self.boosting_manager.boosting_sources[unhexlify(source_str)]
+            except ValueError as e:
+                source = self.boosting_manager.boosting_sources[source_str]
+
             if ds:
+
+                source.av_uprate += ds.get_current_speed('up')
+                source.av_dwnrate += ds.get_current_speed('down')
 
                 if not ds in boosting_dslist:
                     continue
@@ -2239,9 +2259,11 @@ class CreditMiningList(SizeList):
                     if bytes_down:
                         item.RefreshColumn(6, '%f' %(float(bytes_up)/float(bytes_down)))
 
+                    source.storage_used += bytes_down
+
                 #refresh seeder/leecher
-                it_seeder = self.boosting_manager.torrents[item.original_data.infohash]['num_seeders']
-                it_leecher = self.boosting_manager.torrents[item.original_data.infohash]['num_leechers']
+                it_seeder = self.boosting_manager.torrents[torrent_infohash]['num_seeders']
+                it_leecher = self.boosting_manager.torrents[torrent_infohash]['num_leechers']
                 item.RefreshColumn(2, '%d / %d' %(it_seeder, it_leecher))
 
                 item.SetSelectedColour(wx.Colour(255, 175, 175))
@@ -2262,10 +2284,9 @@ class CreditMiningList(SizeList):
 
                 item.RefreshColumn(0, '- / -')
 
-            if item.original_data.infohash in self.boosting_manager.torrents:
-                is_dup = self.boosting_manager.torrents[item.original_data.infohash].get('is_duplicate', None)
+            if torrent_infohash in self.boosting_manager.torrents:
+                is_dup = self.boosting_manager.torrents[torrent_infohash].get('is_duplicate', None)
                 item.RefreshColumn(3, ('*' if is_dup else '**') if is_dup != None else '')
-
 
 
         seeding_stats = [ds.get_seeding_statistics() for ds in boosting_dslist if ds.get_seeding_statistics()]
@@ -2274,6 +2295,21 @@ class CreditMiningList(SizeList):
 
         if self.top_info_p:
             up_rate_txt = self.top_info_p.FindWindowByName('up_rate')
+            dwn_rate_txt = self.top_info_p.FindWindowByName('dwn_rate')
+            storage_used_txt = self.top_info_p.FindWindowByName('storage_used')
+
+            try:
+                filter = self.rawfilter if self.rawfilter in self.boosting_manager.boosting_sources else unhexlify(self.rawfilter)
+            except:
+                filter = self.rawfilter
+
+            if filter:
+                active_source = self.boosting_manager.get_source_object(filter)
+
+                up_rate_txt.SetLabel('Upload rate : '+speed_format(active_source.av_uprate))
+                dwn_rate_txt.SetLabel('Download rate : '+speed_format(active_source.av_dwnrate))
+                storage_used_txt.SetLabel('Storage Used : '+size_format(active_source.storage_used))
+
 
             header = self.parent.GetGrandParent().FindWindowByName('cm_header')
             header.FindWindowByName('b_up').SetLabel('Total bytes up: ' + size_format(self.tot_bytes_up))
@@ -2282,8 +2318,8 @@ class CreditMiningList(SizeList):
             if self.tot_bytes_dwn:
                 header.FindWindowByName('iv_sum').SetLabel(' Investment summary: %f' %(float(self.tot_bytes_up)/float(self.tot_bytes_dwn)))
 
-                header.FindWindowByName('s_up').SetLabel('Total speed up: ' + speed_format(sum([ds.get_current_speed('up') for ds in boosting_dslist])))
-                header.FindWindowByName('s_down').SetLabel('Total speed down: ' + speed_format(sum([ds.get_current_speed('down') for ds in boosting_dslist])))
+            header.FindWindowByName('s_up').SetLabel('Total speed up: ' + speed_format(sum([ds.get_current_speed('up') for ds in boosting_dslist])))
+            header.FindWindowByName('s_down').SetLabel('Total speed down: ' + speed_format(sum([ds.get_current_speed('down') for ds in boosting_dslist])))
 
             if newFilter:
                 self.newfilter = False
@@ -2335,7 +2371,20 @@ class CreditMiningList(SizeList):
 
         source = item[1][5]
         match = (hexlify(self.rawfilter) if len(hexlify(self.rawfilter)) == 40 else self.rawfilter) in source
+
+        if self.boosting_manager.get_source_object(self.rawfilter):
+            match = match and self.boosting_manager.get_source_object(self.rawfilter).enabled
+
         return match
+
+    def GotFilter(self, keyword=None):
+        self.rawfilter = keyword
+        if self.rawfilter == '' and not self.guiutility.getFamilyFilter():
+            wx.CallAfter(self.list.SetFilter, None, None, keyword is None)
+        else:
+            wx.CallAfter(self.list.SetFilter, self.MatchFilter, self.GetFilterMessage, True)
+
+        self.OnFilter(self.rawfilter)
 
     def GetFilterMessage(self, empty=False):
         if empty:
@@ -2349,6 +2398,7 @@ class CreditMiningList(SizeList):
     def addCheckboxItem(self, source, sizer):
         # assert source is BoostingSource, "source instance must be BoostingSource"
         assert sizer is wx.Sizer
+
 
 class ChannelList(List):
 
@@ -2574,12 +2624,13 @@ class ActivitiesList(List):
         self.list.SetData(data_list)
         self.ResizeListItems()
         self.DisableItem(2)
+        self.DisableItem(5)
         if not self.guiutility.frame.videoparentpanel and sys.platform != 'darwin':
             self.DisableItem(6)
         self.DisableCollapse()
         self.selectTab('home')
 
-        self.list.GetItem(7).num_items.Show(False)
+        # self.list.GetItem(7).num_items.Show(False)
 
         # Create expanded panels in advance
         channels_item = self.list.GetItem(3)

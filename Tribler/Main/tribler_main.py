@@ -766,8 +766,8 @@ class ABCApp(object):
 
     @forceWxThread
     def sesscb_ntfy_torrentscrapes(self, subject, changeType, objectID, *args):
-        if self._frame_and_ready() and self.frame.creditmininglist:
-            manager = self.frame.creditmininglist.GetManager()
+        if self._frame_and_ready() and self.frame.creditminingpanel.cmlist:
+            manager = self.frame.creditminingpanel.cmlist.GetManager()
             manager.torrentsUpdated([objectID])
 
     @forceWxThread

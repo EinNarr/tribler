@@ -7,10 +7,6 @@ import logging
 import wx
 from binascii import hexlify, unhexlify
 from wx.lib.agw.ultimatelistctrl import ULC_VIRTUAL, EVT_LIST_ITEM_CHECKED
-from wx.lib.mixins.listctrl import CheckListCtrlMixin
-from wx.lib.scrolledpanel import ScrolledPanel
-
-from math import ceil
 
 from Tribler import LIBRARYNAME
 from Tribler.Core.exceptions import NotYetImplementedException
@@ -175,7 +171,7 @@ class CpanelCheckListCtrl(wx.ScrolledWindow, ULC.UltimateListCtrl):
 
         self.boosting_manager.set_enable_mining(
             data.dispersy_cid if not isinstance(data, BoostingSource)
-                else data.source, flag)
+                else data.source, flag, True)
 
         if isinstance(data, Channel):
             # channel -> channel source
@@ -220,6 +216,7 @@ class CreditMiningPanel(FancyPanel):
         self.AddComponents(self.main_splitter)
         self.SetSizer(self.main_sizer)
 
+
         self.guiutility.utility.session.lm.threadpool.add_task(self._PostInit, 2,
                                             task_name=str(self)+"_post_init")
 
@@ -252,21 +249,26 @@ class CreditMiningPanel(FancyPanel):
         # rss only
         self.rss_title = wx.StaticText(self.tnfo_subpanel_top, -1, 'Title : -')
         stat_sizer.Add(self.rss_title, 1)
+        self.rss_desc = wx.StaticText(self.tnfo_subpanel_top, -1, 'Description : -')
+        stat_sizer.Add(self.rss_desc, 1)
+
+        self.debug_info = wx.StaticText(self.tnfo_subpanel_top, -1, 'Debug Info : -')
+        stat_sizer.Add(self.debug_info)
 
         tinfo_spanel_sizer.Add(stat_sizer,-1)
-        tinfo_spanel_sizer.Add(wx.StaticText(self.tnfo_subpanel_top, -1, 'Status CM : '))
-        self.status_cm = wx.StaticText(self.tnfo_subpanel_top, -1, 'Active')
+        tinfo_spanel_sizer.Add(wx.StaticText(self.tnfo_subpanel_top, -1, 'Credit Mining Status: '))
+        self.status_cm = wx.StaticText(self.tnfo_subpanel_top, -1, '-')
         tinfo_spanel_sizer.Add(self.status_cm)
         self.tnfo_subpanel_top.SetSizer(tinfo_spanel_sizer)
 
         tinfo_sizer.Add(self.tnfo_subpanel_top, 1, wx.EXPAND)
         tinfo_sizer.Add(wx.StaticLine(self.top_info_p), 0, wx.ALL|wx.EXPAND, 5)
 
-        self.up_rate = wx.StaticText(self.top_info_p, -1, 'Up rate : -', name="up_rate")
+        self.up_rate = wx.StaticText(self.top_info_p, -1, 'Upload rate : -', name="up_rate")
         tinfo_sizer.Add(self.up_rate)
-        self.dwn_rate = wx.StaticText(self.top_info_p, -1, 'Down rate : -')
+        self.dwn_rate = wx.StaticText(self.top_info_p, -1, 'Download rate : -', name="dwn_rate")
         tinfo_sizer.Add(self.dwn_rate)
-        self.storage_used = wx.StaticText(self.top_info_p, -1, 'Storage Used : -')
+        self.storage_used = wx.StaticText(self.top_info_p, -1, 'Storage Used : -', name="storage_used")
         tinfo_sizer.Add(self.storage_used)
 
         self.top_info_p.SetSizer(tinfo_sizer)
@@ -305,6 +307,7 @@ class CreditMiningPanel(FancyPanel):
             self.last_updt.Show()
             self.votes_num.Show()
             self.rss_title.Hide()
+            self.rss_desc.Hide()
 
             self.source_label.SetLabel("Source : Channel (stored)")
             self.source_name.SetLabel("Name : "+data.getSource())
@@ -313,10 +316,15 @@ class CreditMiningPanel(FancyPanel):
             self.votes_num.SetLabel('Favorite votes : '+str(data.channel.nr_favorites))
             self.status_cm.SetLabel("Active" if data.enabled else "Inactive")
 
+
+            debug_str = hexlify(data.source)
+            self.debug_info.SetLabel("Debug Info : \n"+debug_str)
+
         elif isinstance(data, Channel):
             self.last_updt.Show()
             self.votes_num.Show()
             self.rss_title.Hide()
+            self.rss_desc.Hide()
 
             self.source_label.SetLabel("Source : Channel")
             self.source_name.SetLabel("Name : "+data.name)
@@ -325,25 +333,39 @@ class CreditMiningPanel(FancyPanel):
             self.votes_num.SetLabel('Favorite votes : '+str(data.nr_favorites))
             self.status_cm.SetLabel("Inactive")
 
+            debug_str = "-"
+            self.debug_info.SetLabel("Debug Info : \n"+debug_str)
+
         elif isinstance(data, RSSFeedSource):
             self.last_updt.Hide()
             self.votes_num.Hide()
             self.rss_title.Show()
+            self.rss_desc.Show()
 
             self.source_label.SetLabel("Source : RSS Web Feed")
-            self.source_name.SetLabel("Name : "+"name RSS")
-            self.torrent_num.SetLabel("# Torrents : "+str(12345))
-            self.rss_title.SetLabel("Title : "+data.getSource())
+            self.source_name.SetLabel("Source URL : "+data.getSource())
+            self.torrent_num.SetLabel("# Torrents : "+str(data.total_torrents))
+            self.rss_title.SetLabel("Title : "+data.title)
+            self.rss_desc.SetLabel("Description : "+data.description)
             self.status_cm.SetLabel("Active" if data.enabled else "Inactive")
+
+            debug_str = "-"
+            self.debug_info.SetLabel("Debug Info : \n"+debug_str)
+
         elif isinstance(data, DirectorySource):
             self.last_updt.Hide()
             self.votes_num.Hide()
             self.rss_title.Hide()
+            self.rss_desc.Hide()
 
             self.source_label.SetLabel("Source : Directory")
             self.source_name.SetLabel("Name : "+data.getSource())
             self.torrent_num.SetLabel("# Torrents : "+str(12345))
             self.status_cm.SetLabel("Active" if data.enabled else "Inactive")
+
+            debug_str = "-"
+            self.debug_info.SetLabel("Debug Info : \n"+debug_str)
+
         else:
             self._logger.debug("Not implemented yet")
             pass
@@ -410,6 +432,13 @@ class CreditMiningPanel(FancyPanel):
         return header
 
     def _PostInit(self):
+
+        for i in self.boosting_manager.boosting_sources:
+            if not self.boosting_manager.boosting_sources[i].ready:
+                self.guiutility.utility.session.lm.threadpool.add_task(self._PostInit, 2, task_name=str(self)+"_post_init")
+                return
+
+
         for source, source_obj in self.boosting_manager.boosting_sources.items():
             self.sourcelist.CreateSourceItem(source_obj)
 

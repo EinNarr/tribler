@@ -8,6 +8,7 @@ from wx.lib.scrolledpanel import ScrolledPanel
 
 import math
 
+from Tribler.Policies.BoostingManager import BoostingManager
 from Tribler.community.tunnel.hidden_community import HiddenTunnelCommunity
 from Tribler.community.tunnel.routing import Hop
 
@@ -50,6 +51,7 @@ class Home(wx.Panel):
         self.guiutility = GUIUtility.getInstance()
         self.gui_image_manager = GuiImageManager.getInstance()
         self.session = self.guiutility.utility.session
+        self.boosting_manager = BoostingManager.get_instance()
 
         self.channels = {None:None}
 
@@ -121,14 +123,14 @@ class Home(wx.Panel):
         vSizer.Add(wx.StaticLine(self), 0, wx.ALL|wx.EXPAND, 5)
         vSizer.Add(self.channel_panel, 5, wx.EXPAND)
 
-        # TODO (ardhi) : enable this once the layout finishes
-        # # video thumbnail panel
-        # self.aw_panel = ArtworkPanel(self)
-        # self.aw_panel.SetMinSize((-1, 275))
-        # # TODO(lipu): enable this when metadata PR is merged
-        # #self.aw_panel.Show(self.guiutility.ReadGuiSetting('show_artwork', True))
-        # self.aw_panel.Show(False)
-        # vSizer.Add(self.aw_panel, 0, wx.EXPAND)
+        # # TODO (ardhi) : enable this once the layout finishes
+        # video thumbnail panel
+        self.aw_panel = ArtworkPanel(self)
+        self.aw_panel.SetMinSize((-1, 275))
+        # TODO(lipu): enable this when metadata PR is merged
+        #self.aw_panel.Show(self.guiutility.ReadGuiSetting('show_artwork', True))
+        self.aw_panel.Show(False)
+        vSizer.Add(self.aw_panel, 0, wx.EXPAND)
 
         self.channel_panel.Show(False)
 
@@ -194,7 +196,9 @@ class Home(wx.Panel):
         hsizer = wx.BoxSizer(wx.HORIZONTAL)
 
         chn_pn = wx.Panel(parent, -1, style=wx.SUNKEN_BORDER)
-        cb_chn = wx.CheckBox(chn_pn, 1, "CHANNEL "+channel.name.encode('utf-8'))
+        cb_chn = wx.CheckBox(chn_pn, 1, "CHANNEL "+channel.name.encode('utf-8'),name=hexlify(channel.dispersy_cid))
+        obj = self.boosting_manager.get_source_object(channel.dispersy_cid)
+        cb_chn.SetValue(False if not obj else obj.enabled)
 
         normalministar = self.gui_image_manager.getImage(u"ministar.png")
         ministar = self.gui_image_manager.getImage(u"ministarEnabled.png")
@@ -220,6 +224,7 @@ class Home(wx.Panel):
             vsizer.Add(t, 0, wx.EXPAND | wx.LEFT, 25)
 
         chn_pn.SetSizer(vsizer)
+        self.Bind(wx.EVT_CHECKBOX, self.OnCheckBox, cb_chn)
         return chn_pn
 
     def RefreshChannels(self):
@@ -229,7 +234,7 @@ class Home(wx.Panel):
             _, channels = self.guiutility.channelsearch_manager.getPopularChannels()
 
             dict_channels = {channel.dispersy_cid:channel for channel in channels}
-            dict_torrents = {channel.dispersy_cid:None for channel in channels}
+            dict_torrents = {channel.dispersy_cid:[] for channel in channels}
             new_channels_ids = list(set(dict_channels.keys()) - set(self.channels.keys()))
 
             for c in new_channels_ids:
@@ -244,12 +249,32 @@ class Home(wx.Panel):
             count = 0
 
             for c in new_channels_ids:
-                self.chn_sizer.Add(self.CreateChannelItem(self.channel_panel,
-                                                          dict_channels.get(c),
-                                                          dict_torrents.get(c)), 1, wx.EXPAND)
-                count += 1
+            #     self.chn_sizer.Add(self.CreateChannelItem(self.channel_panel,
+            #                                               dict_channels.get(c),
+            #                                               dict_torrents.get(c)), 1, wx.EXPAND)
+            #     count += 1
                 self.channels[c] = dict_channels.get(c)
-                if count >= 10:
+            #
+            #     sortedchannels = sorted(self.channels.values(), key=lambda x: x.nr_favorites if x else 0, reverse=True)
+            #
+            #     for i in [x for x in sortedchannels if x is not None]:
+            #         print i.name+" "+str(i.nr_favorites)
+            #
+            #     if count >= 10:
+            #         break
+
+            self.chn_sizer.Clear()
+            for i in range(0,self.COLUMN_SIZE):
+                self.chn_sizer.AddGrowableCol(i, 1)
+
+            sortedchannels = sorted(self.channels.values(), key=lambda x: x.nr_favorites if x else 0, reverse=True)
+            for c in [x for x in sortedchannels if x is not None]:
+                d = c.dispersy_cid
+                self.chn_sizer.Add(self.CreateChannelItem(self.channel_panel,
+                                                          dict_channels.get(d),
+                                                          dict_torrents.get(d)), 1, wx.EXPAND)
+                count += 1
+                if count >= 30:
                     break
 
             if new_channels_ids:
@@ -259,9 +284,13 @@ class Home(wx.Panel):
         if self.guiutility.frame.ready and isinstance(self.guiutility.GetSelectedPage(), Home):
             startWorker(do_gui, do_query, retryOnBusy=True, priority=GUI_PRI_DISPERSY)
 
-        if len(self.channels) < 50:
-            self.session.lm.threadpool.add_task_in_thread(self.RefreshChannels, 10,
-                                            task_name=str(self.__class__)+"_refreshchannel")
+        # if len(self.channels) < 30:
+        #     self.session.lm.threadpool.add_task_in_thread(self.RefreshChannels, 10,
+        #                                     task_name=str(self.__class__)+"_refreshchannel")
+
+    def OnCheckBox(self, evt):
+        cb = evt.GetEventObject()
+        self.boosting_manager.set_enable_mining(binascii.unhexlify(cb.GetName()), evt.IsChecked)
 
 
 class Stats(wx.Panel):
