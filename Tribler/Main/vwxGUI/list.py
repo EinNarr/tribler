@@ -2618,13 +2618,12 @@ class ActivitiesList(List):
         if sys.platform != 'darwin':
             data_list.append((6, ['Videoplayer'], None, ActivityListItem))
 
-        data_list.append((7, ['CM List beta'], None, ActivityListItem))
-
+        # data_list.append((7, ['CM List beta'], None, ActivityListItem))
 
         self.list.SetData(data_list)
         self.ResizeListItems()
         self.DisableItem(2)
-        self.DisableItem(5)
+
         if not self.guiutility.frame.videoparentpanel and sys.platform != 'darwin':
             self.DisableItem(6)
         self.DisableCollapse()
@@ -2791,8 +2790,8 @@ class ActivitiesList(List):
             itemKey = 5
         elif tab == 'videoplayer':
             itemKey = 6
-        elif tab == 'cmbeta':
-            itemKey = 7
+        # elif tab == 'cmbeta':
+        #     itemKey = 7
         if itemKey:
             wx.CallAfter(self.Select, itemKey, True)
         return
@@ -2813,7 +2812,7 @@ class ActivitiesList(List):
         if curPage < 0:
             curPage = len(pages) - 1
 
-        pageNames = ['home', 'search_results', 'channels', 'my_files', 'creditmining', 'videoplayer', 'cmbeta']
+        pageNames = ['home', 'search_results', 'channels', 'my_files', 'creditmining', 'videoplayer']#, 'cmbeta']
         for i in self.settings.keys():
             pageNames.pop(i - 1)
         self.guiutility.ShowPage(pageNames[curPage])

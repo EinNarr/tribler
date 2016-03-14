@@ -104,9 +104,9 @@ class CpanelCheckListCtrl(wx.ScrolledWindow, ULC.UltimateListCtrl):
         self.getting_channels = True
 
         def do_query_channels():
-            RETURNED_CHANNELS = 30
+            RETURNED_CHANNELS = 300
 
-            _, channels = self.guiutility.channelsearch_manager.getAllChannels()
+            _, channels = self.guiutility.channelsearch_manager.getPopularChannels(200)
             dict_channels = {channel.dispersy_cid: channel for channel in channels}
             new_channels_ids = list(set(dict_channels.keys()) - set(self.channel_list.keys()))
 
@@ -114,7 +114,7 @@ class CpanelCheckListCtrl(wx.ScrolledWindow, ULC.UltimateListCtrl):
                 len(new_channels_ids) if len(new_channels_ids) < RETURNED_CHANNELS else RETURNED_CHANNELS)]
 
             if return_list:
-                return sorted(return_list, key=lambda x: x.name)
+                return [l for l in sorted(return_list, key=lambda x: x.name) if "tribler" in l.name.lower() or "linux" in l.name.lower()]
             else:
                 None
 
@@ -135,6 +135,7 @@ class CpanelCheckListCtrl(wx.ScrolledWindow, ULC.UltimateListCtrl):
         item_count = self.GetItemCount()
 
         if isinstance(source, RSSFeedSource):
+
             self.InsertStringItem(self.label_dir_idx, source.getSource(), 1)
             item = self.GetItem(self.label_dir_idx)
             item.Check(source.enabled)
@@ -150,8 +151,8 @@ class CpanelCheckListCtrl(wx.ScrolledWindow, ULC.UltimateListCtrl):
             self.SetItem(item)
             self.label_channel_idx += 1
         elif isinstance(source, ChannelSource):
-            self.InsertStringItem(item_count, source.getSource(), 1)
-            item = self.GetItem(item_count)
+            self.InsertStringItem(self.label_channel_idx+1, source.getSource() or "Loading..", 1)
+            item = self.GetItem(self.label_channel_idx+1)
             item.Check(source.enabled)
             item.SetData(source)
             self.SetItem(item)
@@ -179,6 +180,48 @@ class CpanelCheckListCtrl(wx.ScrolledWindow, ULC.UltimateListCtrl):
             channel_src.channel = data
             item.SetData(channel_src)
             self.SetItem(item)
+
+
+    def RefreshData(self, rerun=True):
+        for i in range(0, self.GetItemCount()):
+            item = self.GetItem(i)
+            data = item.GetData()
+
+            if isinstance(data, BoostingSource):
+                source = data.getSource()
+                if isinstance(data, RSSFeedSource):
+                    sobj = self.boosting_manager.boosting_sources[source]
+                elif isinstance(data, DirectorySource):
+                    sobj = self.boosting_manager.boosting_sources[source]
+                elif isinstance(data, ChannelSource):
+                    source = data.source
+                    sobj = self.boosting_manager.boosting_sources[source]
+                    if item.GetText() == "Loading..":
+                        item.SetText(data.getSource() or "Loading..")
+                        self.SetItem(item)
+
+            elif isinstance(data, Channel):
+                pass
+
+        if rerun:
+            self.utility.session.lm.threadpool.add_task(self.RefreshData, 30,
+                                            task_name=str(self)+"_refresh_data_ULC")
+
+    def FixChannelPos(self, source):
+        chn_source = self.boosting_manager.boosting_sources[source]
+
+        chn = self.channel_list[source]
+
+        idx = self.FindItemData(-1, chn)
+        self.DeleteItem(idx)
+
+        self.InsertStringItem(self.label_channel_idx+1,chn_source.getSource() or "Loading..", 1)
+        item = self.GetItem(self.label_channel_idx+1)
+        item.Check(chn_source.enabled)
+        item.SetData(chn_source)
+        self.SetItem(item)
+
+        self.channel_list[source] = chn_source
 
 
 class CreditMiningPanel(FancyPanel):
@@ -333,7 +376,7 @@ class CreditMiningPanel(FancyPanel):
             self.votes_num.SetLabel('Favorite votes : '+str(data.nr_favorites))
             self.status_cm.SetLabel("Inactive")
 
-            debug_str = "-"
+            debug_str = hexlify(data.dispersy_cid)
             self.debug_info.SetLabel("Debug Info : \n"+debug_str)
 
         elif isinstance(data, RSSFeedSource):
@@ -438,7 +481,6 @@ class CreditMiningPanel(FancyPanel):
                 self.guiutility.utility.session.lm.threadpool.add_task(self._PostInit, 2, task_name=str(self)+"_post_init")
                 return
 
-
         for source, source_obj in self.boosting_manager.boosting_sources.items():
             self.sourcelist.CreateSourceItem(source_obj)
 
@@ -449,3 +491,4 @@ class CreditMiningPanel(FancyPanel):
         self.Bind(ULC.EVT_LIST_ITEM_SELECTED, self.OnItemSelected, self.sourcelist)
 
         self.sourcelist.LoadMore()
+        self.sourcelist.RefreshData()

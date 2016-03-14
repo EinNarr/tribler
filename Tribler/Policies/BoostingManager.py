@@ -99,6 +99,10 @@ class BoostingPolicy(object):
         for torrent in sorted_torrents[max_active:]:
             if self.session.get_download(torrent["metainfo"].get_infohash()):
                 torrents_stop.append(torrent)
+
+        # if not torrents_start and not torrents_stop:
+        #     torrents_start = torrents.copy()
+
         return (torrents_start, torrents_stop)
 
 
@@ -140,6 +144,7 @@ class BoostingManager(TaskManager):
         self._logger = logging.getLogger(self.__class__.__name__)
 
         BoostingManager.__single = self
+        self.gui_util = GUIUtility.getInstance()
 
         self._saved_attributes = ["max_torrents_per_source",
                                   "max_torrents_active", "source_interval",
@@ -233,18 +238,6 @@ class BoostingManager(TaskManager):
         if force_restart:
             self._select_torrent()
 
-    # not used?
-    # def load(self):
-    #     if self.utility:
-    #         try:
-    #             string_to_source = lambda s: s.decode('hex') if len(s) == 20 and not (os.path.isdir(s) or s.startswith('http://')) else s
-    #             for source in json.loads(self.utility.config.Read('boosting_sources')):
-    #                 self.add_source(string_to_source(source))
-    #             logger.info("Initial boosting sources %s",
-    #                         self.boosting_sources.keys())
-    #         except:
-    #             logger.info("No initial boosting sources")
-
     def save(self):
         if self.utility:
             try:
@@ -273,7 +266,7 @@ class BoostingManager(TaskManager):
     def add_source(self, source):
         if source not in self.boosting_sources:
             args = (self.session, self.session.lm.threadpool, source, self.source_interval, self.max_torrents_per_source, self.on_torrent_insert)
-            # pylint: disable=star-args
+                # pylint: disable=star-args
 
             try:
                 isdir = os.path.isdir(source)
@@ -374,6 +367,23 @@ class BoostingManager(TaskManager):
         #             source_str)
 
     def scrape_trackers(self):
+        # print "scrape!"
+        #
+        #
+        # for infohash, torrent in self.torrents.iteritems():
+        #     tf = torrent['metainfo']
+        #     # print tf.get_tracker_hierarchy()
+        #     # print tf.get_dht_nodes()
+        #     # print tf.get_tracker_hierarchy()
+        #
+        #     # print "_______________________________"
+        #     self.session.check_torrent_health(infohash)
+        #
+        #     # self.session.torrent_checker.
+        #
+        # self.session.lm.threadpool.add_task(self.scrape_trackers, self.tracker_interval)
+        # return None
+
         num_requests = 0
         trackers = defaultdict(list)
 
@@ -445,13 +455,21 @@ class BoostingManager(TaskManager):
             dscfg.set_dest_dir(self.credit_mining_path)
             dscfg.set_safe_seeding(False)
 
-            preload = torrent.get('preload', False)
-            logger.info("Starting %s %d/%d preload %s",
-                        hexlify(torrent["metainfo"].get_infohash()),
-                        torrent["num_seeders"],torrent["num_leechers"], preload)
-            torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=torrent.get('pstate', None),
+            #TODO (ardhi) debug variable so I can change this later
+            tobj = torrent
+
+            preload = tobj.get('preload', False)
+            logger.info("Starting %s preload %s",
+                        hexlify(tobj["metainfo"].get_infohash()),
+                         preload)
+
+            # not using Session.start_download because we need to specify pstate
+            assert self.session.get_libtorrent()
+
+            tobj['download'] = self.session.lm.add(tobj['metainfo'], dscfg, pstate=tobj.get('pstate', None),
                                                       hidden=True, share_mode=not preload, checkpoint_disabled=True)
-            torrent['download'].set_priority(torrent.get('prio', 1))
+            tobj['download'].set_priority(tobj.get('prio', 1))
+
         self.session.lm.threadpool.add_task_in_thread(do_start, 0)
 
     def stop_download(self, torrent):
@@ -480,8 +498,6 @@ class BoostingManager(TaskManager):
                     torrents[infohash] = torrent
 
         if self.policy is not None and torrents:
-            logger.info("Selecting from %s torrents", len(torrents))
-
             # Determine which torrent to start and which to stop.
             torrents_start, torrents_stop = self.policy.apply(
                 torrents, self.max_torrents_active)
@@ -489,6 +505,8 @@ class BoostingManager(TaskManager):
                 self.stop_download(torrent)
             for torrent in torrents_start:
                 self.start_download(torrent)
+
+            logger.info("Selecting from %s torrents %s start download", len(torrents), len(torrents_start))
 
         self.session.lm.threadpool.add_task(self._select_torrent, self.swarm_interval)
 
@@ -577,6 +595,20 @@ class BoostingManager(TaskManager):
         for lt_torrent in lt_torrents:
             status = lt_torrent.status()
             if unhexlify(str(status.info_hash)) in self.torrents:
+                t = self.torrents[unhexlify(str(status.info_hash))]
+                # print({str(status.info_hash):{t['name']:t['num_seeders']}})
+                #
+                # print("numpeer %d lastscrape: %s #upload : %d #conn : %d" %(status.num_peers, status.last_scrape, status.num_uploads,
+                #       status.num_connections))
+
+                # pprint.pprint(lt_torrent.get_peer_info())
+
+                # tz = self.gui_util.torrentsearch_manager.getTorrentByInfohash(str(status.info_hash))
+                # pprint.pprint(tz)
+                # pprint.pprint({str(status.info_hash):pprint.pformat(self.torrents[unhexlify(str(status.info_hash))])})
+                # .update(
+                    #self.torrents[unhexlify(str(status.info_hash))]['download'].network_tracker_status())
+
                 logger.debug("Status for %s : %s %s", status.info_hash,
                              status.all_time_download,
                              status.all_time_upload)
@@ -675,7 +707,7 @@ class ChannelSource(BoostingSource):
 
         def get_channel_id():
             # pylint: disable=protected-access
-            if self.community and self.community._channel_id:
+            if self.community and self.community._channel_id and self.gui_util.registered:
                 self.channel_id = self.community._channel_id
 
                 self.channel = self.gui_util.channelsearch_manager.getChannel(self.channel_id)
@@ -709,8 +741,8 @@ class ChannelSource(BoostingSource):
                 self.torrents[infohash]['creation_date'] = torrent.creation_date
                 self.torrents[infohash]['length'] = torrent.tdef.get_length()
                 self.torrents[infohash]['num_files'] = len(torrent.files)
-                self.torrents[infohash]['num_seeders'] = torrent.swarminfo[0] or -1
-                self.torrents[infohash]['num_leechers'] = torrent.swarminfo[1] or -1
+                self.torrents[infohash]['num_seeders'] = torrent.swarminfo[0]
+                self.torrents[infohash]['num_leechers'] = torrent.swarminfo[1]
                 self.torrents[infohash]['enabled'] = self.enabled
 
                 del self.unavail_torrent[infohash]
@@ -821,6 +853,7 @@ class RSSFeedSource(BoostingSource):
             for item in feed_status['items']:
                 # Not all RSS feeds provide us with the infohash, so we use a fake infohash based on the URL to identify the torrents.
                 infohash = sha1(item['url']).digest()
+
                 if infohash not in self.torrents:
                     # Store the torrents as rss-infohash_as_hex.torrent.
                     torrent_filename = os.path.join(BoostingManager.get_instance().credit_mining_path, 'rss-%s.torrent' % infohash.encode('hex'))
