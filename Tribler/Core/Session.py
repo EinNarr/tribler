@@ -619,7 +619,10 @@ class Session(SessionConfigInterface):
         Checks the given torrent's health on its trackers.
         :param infohash: The given torrent infohash.
         """
-        self.lm.torrent_checker.add_gui_request(infohash)
+
+        #sometimes torrent_checker can't be found (None)
+        if self.lm.initComplete:
+            self.lm.torrent_checker.add_gui_request(infohash)
 
     def set_max_upload_speed(self, rate):
         """

@@ -53,7 +53,10 @@ class Home(wx.Panel):
         self.session = self.guiutility.utility.session
         self.boosting_manager = BoostingManager.get_instance()
 
+        #dispersy_cid:Channel
         self.channels = {None:None}
+        #dispersy_cid:Popular Torrents
+        self.chn_torrents = {}
 
         vSizer = wx.BoxSizer(wx.VERTICAL)
         vSizer.AddStretchSpacer()
@@ -229,12 +232,12 @@ class Home(wx.Panel):
 
     def RefreshChannels(self):
         def do_query():
-            TORRENT_AMOUNT = 3
+            TORRENT_AMOUNT = 5
 
-            _, channels = self.guiutility.channelsearch_manager.getPopularChannels()
+            _, channels = self.guiutility.channelsearch_manager.getPopularChannels(len(self.channels)+TORRENT_AMOUNT)
 
             dict_channels = {channel.dispersy_cid:channel for channel in channels}
-            dict_torrents = {channel.dispersy_cid:[] for channel in channels}
+            dict_torrents = {}
             new_channels_ids = list(set(dict_channels.keys()) - set(self.channels.keys()))
 
             for c in new_channels_ids:
@@ -249,10 +252,11 @@ class Home(wx.Panel):
             count = 0
 
             for c in new_channels_ids:
-
                 self.channels[c] = dict_channels.get(c)
+                self.chn_torrents.update(dict_torrents)
 
-            self.chn_sizer.Clear()
+            self.chn_sizer.Clear(True)
+            self.chn_sizer.Layout()
             for i in range(0,self.COLUMN_SIZE):
                 self.chn_sizer.AddGrowableCol(i, 1)
 
@@ -261,7 +265,7 @@ class Home(wx.Panel):
                 d = c.dispersy_cid
                 self.chn_sizer.Add(self.CreateChannelItem(self.channel_panel,
                                                           dict_channels.get(d),
-                                                          dict_torrents.get(d)), 1, wx.EXPAND)
+                                                          self.chn_torrents.get(d)), 1, wx.EXPAND)
                 count += 1
                 if count >= 30:
                     break

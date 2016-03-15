@@ -114,7 +114,7 @@ class CpanelCheckListCtrl(wx.ScrolledWindow, ULC.UltimateListCtrl):
                 len(new_channels_ids) if len(new_channels_ids) < RETURNED_CHANNELS else RETURNED_CHANNELS)]
 
             if return_list:
-                return [l for l in sorted(return_list, key=lambda x: x.name)]# if "tribler" in l.name.lower() or "linux" in l.name.lower()]
+                return [l for l in sorted(return_list, key=lambda x: x.nr_favorites, reverse=True)]# if "tribler" in l.name.lower() or "linux" in l.name.lower()]
             else:
                 None
 
