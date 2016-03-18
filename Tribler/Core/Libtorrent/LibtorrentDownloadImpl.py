@@ -776,42 +776,53 @@ class LibtorrentDownloadImpl(DownloadConfigInterface):
         d['npieces'] = ((self.length + 1023) / 1024)
         return d
 
+    @staticmethod
+    def create_peerlist_data(peer_info):
+        peer_dict = {}
+
+        peer_dict['id'] = peer_info.pid
+        peer_dict['extended_version'] = peer_info.client
+        peer_dict['ip'] = peer_info.ip[0]
+        peer_dict['port'] = peer_info.ip[1]
+        # optimistic_unchoke = 0x800 seems unavailable in python bindings
+        peer_dict['optimistic'] = bool(peer_info.flags & 2048)
+        peer_dict['direction'] = 'L' if bool(peer_info.flags & peer_info.local_connection) else 'R'
+        peer_dict['uprate'] = peer_info.payload_up_speed
+        peer_dict['uinterested'] = bool(peer_info.flags & peer_info.remote_interested)
+        peer_dict['uchoked'] = bool(peer_info.flags & peer_info.remote_choked)
+        peer_dict['uhasqueries'] = peer_info.upload_queue_length > 0
+        peer_dict['uflushed'] = peer_info.used_send_buffer > 0
+        peer_dict['downrate'] = peer_info.payload_down_speed
+        peer_dict['dinterested'] = bool(peer_info.flags & peer_info.interesting)
+        peer_dict['dchoked'] = bool(peer_info.flags & peer_info.choked)
+        peer_dict['snubbed'] = bool(peer_info.flags & 4096)  # snubbed = 0x1000 seems unavailable in python bindings
+        peer_dict['utotal'] = peer_info.total_upload
+        peer_dict['dtotal'] = peer_info.total_download
+        peer_dict['completed'] = peer_info.progress
+        peer_dict['have'] = peer_info.pieces
+        peer_dict['speed'] = peer_info.remote_dl_rate
+        peer_dict['country'] = peer_info.country
+        peer_dict['connection_type'] = peer_info.connection_type
+
+        # add upload_only and/or seed
+        peer_dict['seed'] = bool(peer_info.flags & peer_info.seed)
+        peer_dict['upload_only'] = bool(peer_info.flags & peer_info.upload_only)
+
+
+        return peer_dict
+
     def network_create_spew_from_peerlist(self):
         plist = []
         with self.dllock:
             peer_infos = self.handle.get_peer_info()
         for peer_info in peer_infos:
-
             # Only consider fully connected peers.
             # Disabling for now, to avoid presenting the user with conflicting information
             # (partially connected peers are included in seeder/leecher stats).
             # if peer_info.flags & peer_info.connecting or peer_info.flags & peer_info.handshake:
             #     continue
+            peer_dict = LibtorrentDownloadImpl.create_peerlist_data(peer_info)
 
-            peer_dict = {}
-            peer_dict['id'] = peer_info.pid
-            peer_dict['extended_version'] = peer_info.client
-            peer_dict['ip'] = peer_info.ip[0]
-            peer_dict['port'] = peer_info.ip[1]
-            # optimistic_unchoke = 0x800 seems unavailable in python bindings
-            peer_dict['optimistic'] = bool(peer_info.flags & 2048)
-            peer_dict['direction'] = 'L' if bool(peer_info.flags & peer_info.local_connection) else 'R'
-            peer_dict['uprate'] = peer_info.payload_up_speed
-            peer_dict['uinterested'] = bool(peer_info.flags & peer_info.remote_interested)
-            peer_dict['uchoked'] = bool(peer_info.flags & peer_info.remote_choked)
-            peer_dict['uhasqueries'] = peer_info.upload_queue_length > 0
-            peer_dict['uflushed'] = peer_info.used_send_buffer > 0
-            peer_dict['downrate'] = peer_info.payload_down_speed
-            peer_dict['dinterested'] = bool(peer_info.flags & peer_info.interesting)
-            peer_dict['dchoked'] = bool(peer_info.flags & peer_info.choked)
-            peer_dict['snubbed'] = bool(peer_info.flags & 4096)  # snubbed = 0x1000 seems unavailable in python bindings
-            peer_dict['utotal'] = peer_info.total_upload
-            peer_dict['dtotal'] = peer_info.total_download
-            peer_dict['completed'] = peer_info.progress
-            peer_dict['have'] = peer_info.pieces
-            peer_dict['speed'] = peer_info.remote_dl_rate
-            peer_dict['country'] = peer_info.country
-            peer_dict['connection_type'] = peer_info.connection_type
             plist.append(peer_dict)
 
         return plist

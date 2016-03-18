@@ -191,7 +191,7 @@ class Home(wx.Panel):
 
     def CreateChannelItem(self, parent, channel, torrents):
         from Tribler.Main.Utility.GuiDBTuples import Channel as ChannelObj
-        assert isinstance(channel, ChannelObj)
+        assert isinstance(channel, ChannelObj), "Type channel should be ChannelObj %s" %channel
 
         STRING_LENGTH = 40
 
@@ -263,6 +263,9 @@ class Home(wx.Panel):
             sortedchannels = sorted(self.channels.values(), key=lambda x: x.nr_favorites if x else 0, reverse=True)
             for c in [x for x in sortedchannels if x is not None]:
                 d = c.dispersy_cid
+                if not dict_channels.get(d):
+                    continue
+
                 self.chn_sizer.Add(self.CreateChannelItem(self.channel_panel,
                                                           dict_channels.get(d),
                                                           self.chn_torrents.get(d)), 1, wx.EXPAND)

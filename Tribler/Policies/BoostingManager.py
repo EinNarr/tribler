@@ -21,6 +21,7 @@ import libtorrent as lt
 import sys
 
 from Tribler.Core.DownloadConfig import DownloadStartupConfig
+from Tribler.Core.Libtorrent.LibtorrentDownloadImpl import LibtorrentDownloadImpl
 from Tribler.Core.TorrentChecker.session import MAX_TRACKER_MULTI_SCRAPE
 from Tribler.Core.TorrentDef import TorrentDef
 from Tribler.Core.simpledefs import DLSTATUS_SEEDING, NTFY_INSERT, NTFY_SCRAPE, NTFY_TORRENTS, NTFY_UPDATE
@@ -142,6 +143,7 @@ class BoostingManager(TaskManager):
     def __init__(self, session, utility=None, policy=SeederRatioPolicy, src_interval=20, sw_interval=20,
                  max_per_source=100, max_active=2):
         super(BoostingManager, self).__init__()
+
         self._logger = logging.getLogger(self.__class__.__name__)
 
         BoostingManager.__single = self
@@ -369,11 +371,22 @@ class BoostingManager(TaskManager):
         #             source_str)
 
     def scrape_trackers(self):
+        print "scrape!"
 
         for infohash, torrent in self.torrents.iteritems():
             tf = torrent['metainfo']
+            # print tf.get_tracker_hierarchy()
+            # print tf.get_dht_nodes()
+            # print tf.get_tracker_hierarchy()
+
+            if 'download' in torrent:
+                trackers = torrent['download'].network_tracker_status()
+                import pprint
+                pprint.pprint(trackers)
 
             self.session.check_torrent_health(infohash)
+
+            # self.session.torrent_checker.
 
         self.session.lm.threadpool.add_task(self.scrape_trackers, self.tracker_interval)
         return None
@@ -588,25 +601,39 @@ class BoostingManager(TaskManager):
 
         for lt_torrent in lt_torrents:
             status = lt_torrent.status()
+
             if unhexlify(str(status.info_hash)) in self.torrents:
                 t = self.torrents[unhexlify(str(status.info_hash))]
                 # print({str(status.info_hash):{t['name']:t['num_seeders']}})
                 #
-                # print("numpeer %d lastscrape: %s #upload : %d #conn : %d" %(status.num_peers, status.last_scrape, status.num_uploads,
-                #       status.num_connections))
+                print("%s numpeer %d lastscrape: %s seed_rank : %s #conn : %d dl_rate : %s"
+                      %(str(status.info_hash), status.num_peers, status.last_scrape, status.seed_rank,
+                      status.num_connections, status.download_rate))
 
-                # pprint.pprint(lt_torrent.get_peer_info())
+                for i in lt_torrent.get_peer_info():
+                    peer = LibtorrentDownloadImpl.create_peerlist_data(i)
+                    out = "ip:%s uprate:%s dwnrate:%s progress:%s s/u:%s/%s>> " %(peer['ip'], peer['uprate'], peer['downrate'], peer['completed'],
+                                                                                  peer['seed'], peer['upload_only'])
 
-                # tz = self.gui_util.torrentsearch_manager.getTorrentByInfohash(str(status.info_hash))
-                # pprint.pprint(tz)
-                # pprint.pprint({str(status.info_hash):pprint.pformat(self.torrents[unhexlify(str(status.info_hash))])})
-                # .update(
-                    #self.torrents[unhexlify(str(status.info_hash))]['download'].network_tracker_status())
+                    if peer['uinterested']:
+                        out += "INTERESTED in us"
+                    if peer['uchoked']:
+                        out += "CHOKED on US "
+                    if peer['dinterested']:
+                        out += "we are INTERESTED "
+                    if peer['dchoked']:
+                        out += "we CHOKED him "
+
+                    print out
+
+                print "----------------------"
 
                 logger.debug("Status for %s : %s %s", status.info_hash,
                              status.all_time_download,
                              status.all_time_upload)
                 non_zero_values = []
+
+                # assert error in libtorrent 1.0.9
                 for piece_priority in lt_torrent.piece_priorities():
                     if piece_priority != 0:
                         non_zero_values.append(piece_priority)
