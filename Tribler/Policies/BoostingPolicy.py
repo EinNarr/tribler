@@ -42,12 +42,12 @@ class BoostingPolicy(object):
         # if both results are empty for some reason (e.g, key_check too restrictive)
         # or torrent started less than half available torrent (try to keep boosting alive)
         # if it's already random, just let it be
-        if not isinstance(self, RandomPolicy) and ((not torrents_start and not torrents_stop) or
-                                                   (len(torrents_start) < len(torrents) / 2 and len(
-                                                       torrents_start) < max_active / 2)):
-            self._logger.error("Start and stop torrent list are empty. Fallback to Random")
-            # fallback to random policy
-            torrents_start, torrents_stop = RandomPolicy(self.session).apply(torrents, max_active)
+        # if not isinstance(self, RandomPolicy) and ((not torrents_start and not torrents_stop) or
+        #                                            (len(torrents_start) < len(torrents) / 2 and len(
+        #                                                torrents_start) < max_active / 2)):
+        #     self._logger.error("Start and stop torrent list are empty. Fallback to Random")
+        #     # fallback to random policy
+        #     torrents_start, torrents_stop = RandomPolicy(self.session).apply(torrents, max_active)
 
         return torrents_start, torrents_stop
 
