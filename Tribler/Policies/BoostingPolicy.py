@@ -6,6 +6,9 @@ Supported boosting policy
 import logging
 import random
 
+import time
+from binascii import hexlify
+
 
 class BoostingPolicy(object):
     """
@@ -27,14 +30,35 @@ class BoostingPolicy(object):
                                   if self.key_check(torrent)],
                                  key=self.key, reverse=self.reverse)
 
+        ignored_torrents = []
+        torrents_stop = []
         torrents_start = []
+        for torrent in [a for a in sorted_torrents[max_active:]]:
+            if self.session.get_download(torrent["metainfo"].get_infohash()) \
+                    and time.time() - 1.2*self.session.lm.boosting_manager.settings.swarm_interval \
+                    < torrent['time']['last_stopped']:
+                self._logger.debug("Torrent %s just stopped before. Ignoring.", hexlify(torrent["metainfo"].get_infohash()))
+                ignored_torrents.append(torrent)
+                sorted_torrents.remove(torrent)
+
+        for torrent in [a for a in sorted_torrents[:max_active]]:
+            if torrent['time']['last_activity'] and not self.session.get_download(torrent["metainfo"].get_infohash()) \
+                    and time.time() - torrent['time']['last_activity'] > \
+                    self.session.lm.boosting_manager.settings.timeout_torrent_activity:
+                self._logger.debug("Torrent %s idle too long. Stop it.", hexlify(torrent["metainfo"].get_infohash()))
+                torrents_stop.append(torrent)
+                sorted_torrents.remove(torrent)
+
         for torrent in sorted_torrents[:max_active]:
             if not self.session.get_download(torrent["metainfo"].get_infohash()):
                 torrents_start.append(torrent)
-        torrents_stop = []
+
         for torrent in sorted_torrents[max_active:]:
             if self.session.get_download(torrent["metainfo"].get_infohash()):
                 torrents_stop.append(torrent)
+
+
+
 
         if force:
             return torrents_start, torrents_stop
