@@ -342,6 +342,14 @@ class BoostingManager(TaskManager):
         lt_torrent = self.session.lm.ltmgr.get_session().find_torrent(ihash)
         if download and lt_torrent.is_valid():
             self._logger.info("Writing resume data for %s", str(ihash))
+
+            handle = download.handle
+            if not handle.is_valid():
+                self._logger.error("Handle %s is not valid", str(ihash))
+            if not handle.has_metadata():
+                self._logger.error("Metadata %s is not valid", str(ihash))
+            handle.pause()
+
             download.save_resume_data()
             self.session.remove_download(download, hidden=True)
             torrent['time']['last_stopped'] = time.time()
@@ -500,6 +508,10 @@ class BoostingManager(TaskManager):
                 return
 
             status = tor['download'].handle.status()
+
+            # if it was paused before saving resume data
+            if tor['download'].handle.is_paused():
+                tor['download'].handle.resume()
 
             if status.all_time_download != tor['time']['all_download']\
                     or status.all_time_upload != tor['time']['all_upload']:
