@@ -376,7 +376,7 @@ class TriblerLaunchMany(TaskManager):
     def on_download_wrapper_created(self, (d, pstate)):
         """ Called by network thread """
         try:
-            if pstate is None and not d.get_checkpoint_disabled():
+            if pstate is None and not d.get_checkpoint_disabled() and not d.get_share_mode():
                 # Checkpoint at startup
                 (infohash, pstate) = d.network_checkpoint()
                 self.save_download_pstate(infohash, pstate)
