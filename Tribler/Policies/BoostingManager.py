@@ -100,7 +100,9 @@ class BoostingManager(TaskManager):
             os.makedirs(self.settings.credit_mining_path)
 
         self.session.lm.ltmgr.get_session().set_settings(
-            {'share_mode_target': self.settings.share_mode_target})
+            {'share_mode_target': self.settings.share_mode_target,
+             'active_limit': 50, 'active_seeds': 35,
+             'upload_rate_limit': 0})
 
         self.session.add_observer(self.on_torrent_notify, NTFY_TORRENTS, [NTFY_UPDATE])
 
