@@ -618,6 +618,10 @@ class TriblerLaunchMany(TaskManager):
                     # in a infohash -> pstate dict which is then passed to the user
                     # for storage.
                     #
+                    if d.get_checkpoint_disabled():
+                        self._logger.warning("Ignoring checkpoint() call as is checkpointing disabled for this download.")
+                        continue
+
                     if stop:
                         (infohash, pstate) = d.network_stop(False, False)
                     else:
