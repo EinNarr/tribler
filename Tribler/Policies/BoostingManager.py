@@ -207,6 +207,105 @@ class BoostingManager(TaskManager):
 
             self._logger.info("Torrents download stopped and removed")
 
+    def __insert_peer(self, infohash, ip, peer):
+        peerlist = self.torrents[infohash]['peers']
+        if ip not in peerlist.keys():
+            self.torrents[infohash]['peers'][ip] = peer
+        else:
+            stored_peer = self.torrents[infohash]['peers'][ip]
+
+            #TODO(ardhi) : compare stored peer data with new peer data here
+            # Example :
+            # if stored_peer['num_pieces'] != peer['num_pieces']:
+            # if stored_peer['completed'] != peer['completed']:
+            # if stored_peer['uinterested'] != peer['uinterested']:
+
+            self.torrents[infohash]['peers'][ip] = peer
+
+    def __process_resume_alert(self):
+        _alerts = self.pre_session.pop_alerts() or []
+        for a in _alerts:
+            if a.category() & lt.alert.category_t.storage_notification and hasattr(a, 'resume_data'):
+                basename = "_" + hexlify(a.resume_data['info-hash']) + '.state'
+                filename = os.path.join(self.session.get_downloads_pstate_dir(), basename)
+
+                with open(filename, 'wb') as file_:
+                    file_.write(str(a.resume_data))
+
+                # call the callback to start boosting on this torrent
+                self.torrents[a.resume_data['info-hash']]['predownload'].callback(a.handle)
+
+    def _pre_download_torrent(self, source, infohash, torrent):
+        tdef = torrent['metainfo']
+        metainfo = tdef.get_metainfo()
+        torrentinfo = lt.torrent_info(metainfo)
+
+        self._logger.debug("%s start pre-downloading", hexlify(infohash))
+
+        thandle = self.pre_session.add_torrent({'ti': torrentinfo, 'save_path': self.settings.credit_mining_path,
+                                         'flags': lt.add_torrent_params_flags_t.flag_sequential_download |
+                                                  lt.add_torrent_params_flags_t.flag_paused})
+
+        # only download 4 pieces
+        thandle.prioritize_pieces([0]*len(thandle.piece_priorities()))
+        thandle.piece_priority(0, 7)
+        thandle.piece_priority(1, 7)
+        thandle.piece_priority(2, 7)
+        thandle.piece_priority(3, 7)
+
+        def _on_finish(_thandle):
+            self.pre_session.remove_torrent(_thandle, 0)
+            self.torrents[infohash]['predownload'] = "_" + hexlify(infohash) + '.state'
+
+            out = ""
+            for peer in self.torrents[infohash]['peers'].values():
+                out += "torrent:%s\tip:%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\trecipro:%d++" \
+                        %(hexlify(infohash), peer['ip'], peer['alluprate'], peer['alldownrate'], peer['num_pieces'], peer['completed'],
+                          peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
+                          peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['recipro'])
+
+            self._logger.debug("peers %s : %s", hexlify(infohash), out or "None")
+            return infohash
+
+        deferred_handle = defer.Deferred()
+        deferred_handle.addCallback(_on_finish)
+        deferred_handle.addErrback(log.err)
+
+        self.finish_pre_dl[infohash] = False
+
+        def _check_swarm_peers(thandle, started_time):
+            for p in thandle.get_peer_info():
+                peer = LibtorrentDownloadImpl.create_peerlist_data(p)
+                self.__insert_peer(infohash, peer['ip'], peer)
+
+            status = thandle.status()
+            elapsed_time = time.time() - started_time
+
+            # maximal waiting time : after 3600 seconds (1 hour)
+            if elapsed_time > 3600:
+                self.cancel_pending_task("pre_download_%s" %hexlify(infohash))
+                if status.progress < 1.0:
+                    self._logger.debug("%s timeout pre-downloading with %f", hexlify(infohash), status.progress)
+
+                thandle.pause()
+                thandle.save_resume_data()
+
+            # finished but waiting for more peers data for 10 minute
+            if elapsed_time > 600 and self.finish_pre_dl[infohash]:
+                self.cancel_pending_task("pre_download_%s" %hexlify(infohash))
+                thandle.pause()
+                thandle.save_resume_data()
+
+            # just finished, setting the flags
+            if status.progress == 1.0 and not self.finish_pre_dl[infohash]:
+                self._logger.debug("%s finish pre-downloading by %s", hexlify(infohash), time.time() - started_time)
+                self.finish_pre_dl[infohash] = True
+
+        self.register_task("pre_download_%s" % hexlify(infohash), LoopingCall(_check_swarm_peers, thandle, time.time()), 0,  interval=2)
+        thandle.resume()
+
+        return deferred_handle
+
     def on_torrent_insert(self, source, infohash, torrent):
         """
         This function called when a source is finally determined. Fetch some torrents from it,
