@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 # Written by Egbert Bouman, Mihai Capotă, Elric Milon, and Ardhi Putra Pratama H
 """Manage boosting of swarms"""
+import glob
 import logging
 import os
 import shutil
 from binascii import hexlify, unhexlify
+from twisted.internet import defer
 
 import libtorrent as lt
 import time
@@ -99,10 +101,12 @@ class BoostingManager(TaskManager):
         if not os.path.exists(self.settings.credit_mining_path):
             os.makedirs(self.settings.credit_mining_path)
 
+        self.pre_session = self.session.lm.ltmgr.create_session()
+
         self.session.lm.ltmgr.get_session().set_settings(
             {'share_mode_target': self.settings.share_mode_target,
              'active_limit': 50, 'active_seeds': 35,
-             'upload_rate_limit': 0})
+             'upload_rate_limit': 0, 'seed_choking_algorithm': 1}) # choking fastest_upload
 
         self.session.add_observer(self.on_torrent_notify, NTFY_TORRENTS, [NTFY_UPDATE])
 
@@ -118,6 +122,9 @@ class BoostingManager(TaskManager):
         self.register_task("CreditMining_checktime", LoopingCall(self.check_time),
                            self.settings.time_check_interval, interval=self.settings.time_check_interval)
 
+        self.register_task("process resume", LoopingCall(self.__process_resume_alert), 10, interval=5)
+
+
     def shutdown(self):
         """
         Shutting down boosting manager. It also stops and remove all the sources.
@@ -132,6 +139,10 @@ class BoostingManager(TaskManager):
 
         # remove credit mining downloaded data
         shutil.rmtree(self.settings.credit_mining_path, ignore_errors=True)
+
+        # remove pre-download file
+        for f in glob.glob(self.session.get_downloads_pstate_dir()+"/_*.state"):
+            os.remove(f)
 
     def get_source_object(self, sourcekey):
         """
@@ -313,7 +324,14 @@ class BoostingManager(TaskManager):
         """
 
         # Remember where we got this torrent from
-        self._logger.debug("remember torrent %s from %s", torrent, source_to_string(source))
+        self._logger.debug("remember torrent %s from %s", torrent['name'], source_to_string(source))
+
+        torrent['peers'] = {}
+
+        if self.session.lm.load_download_pstate_noexc(infohash):
+            torrent['predownload'] = "_" + hexlify(infohash) + '.state'
+        else:
+            torrent['predownload'] = self._pre_download_torrent(source, infohash, torrent)
 
         torrent['source'] = source_to_string(source)
 
@@ -378,26 +396,32 @@ class BoostingManager(TaskManager):
         """
 
         for infohash in list(self.torrents):
+            force_scrape = False
+
             # torrent handle
             lt_torrent = self.session.lm.ltmgr.get_session().find_torrent(lt.big_number(infohash))
 
-            peer_list = []
             for i in lt_torrent.get_peer_info():
                 peer = LibtorrentDownloadImpl.create_peerlist_data(i)
-                peer_list.append(peer)
 
-            num_seed, num_leech = utilities.translate_peers_into_health(peer_list)
+                # update peer information
+                self.__insert_peer(infohash, peer['ip'], peer)
+
+            num_seed, num_leech = utilities.translate_peers_into_health(self.torrents[infohash]['peers'].values())
 
             # calculate number of seeder and leecher by looking at the peers
             if self.torrents[infohash]['num_seeders'] == 0:
                 self.torrents[infohash]['num_seeders'] = num_seed
+                force_scrape = True
             if self.torrents[infohash]['num_leechers'] == 0:
                 self.torrents[infohash]['num_leechers'] = num_leech
+                force_scrape = True
 
-            self._logger.debug("Seeder/leecher data translated from peers : seeder %s, leecher %s", num_seed, num_leech)
+            self._logger.debug("Seeder/leecher data %s translated from peers : seeder %s, leecher %s",
+                               hexlify(infohash), num_seed, num_leech)
 
             # check health(seeder/leecher)
-            self.session.lm.torrent_checker.add_gui_request(infohash, True)
+            self.session.lm.torrent_checker.add_gui_request(infohash, force_scrape)
 
     def set_archive(self, source, enable):
         """
@@ -424,10 +448,27 @@ class BoostingManager(TaskManager):
                                hexlify(torrent["metainfo"].get_infohash()))
             return
 
+        pstate = None
+        if type(torrent['predownload']) is not str:
+            self._logger.error("Still predownload %s. Cancel start_download",
+                               hexlify(torrent["metainfo"].get_infohash()))
+            return
+        elif os.path.isfile(os.path.join(self.session.get_downloads_pstate_dir(), torrent['predownload'])):
+            with open(os.path.join(self.session.get_downloads_pstate_dir(), torrent['predownload']), 'r') as _predl_file:
+                pstate_raw = _predl_file.read()
+
+            pstate = dscfg.dlconfig.copy()
+            if not pstate.has_section('state'):
+                pstate.add_section('state')
+            pstate.set('state', 'engineresumedata', pstate_raw)
+
+            # as we read initial resume data, delete it afterwards
+            os.remove(os.path.join(self.session.get_downloads_pstate_dir(), torrent['predownload']))
+
         self._logger.info("Starting %s preload %s",
                           hexlify(torrent["metainfo"].get_infohash()), preload)
 
-        torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, hidden=True,
+        torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=pstate, hidden=True,
                                                   share_mode=not preload, checkpoint_disabled=True)
         torrent['download'].set_priority(torrent.get('prio', 1))
 
