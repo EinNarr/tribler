@@ -487,7 +487,7 @@ class LibtorrentDownloadImpl(DownloadConfigInterface):
         basename = hexlify(resume_data['info-hash']) + '.state'
         filename = os.path.join(self.session.get_downloads_pstate_dir(), basename)
 
-        self._logger.debug("tlm: network checkpointing: to file %s", filename)
+        self._logger.debug("save resume data to file %s", filename)
 
         self.pstate_for_restart.write_file(filename)
 
