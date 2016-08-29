@@ -18,6 +18,7 @@ from twisted.internet import defer
 from twisted.internet import reactor
 from twisted.internet.defer import CancelledError
 from twisted.internet.task import LoopingCall
+from twisted.python import log
 from twisted.web.client import Agent, readBody, getPage
 from twisted.web.error import Error
 from twisted.web.http_headers import Headers
@@ -104,6 +105,7 @@ class BoostingSource(TaskManager):
             """
             if defer_param is None:
                 defer_param = defer.Deferred()
+                defer_param.addErrback(log.err)
 
             nr_channels = self.channelcast_db.getNrChannels()
             nr_connections = 0

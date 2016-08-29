@@ -7,6 +7,7 @@ import os
 import shutil
 from binascii import hexlify, unhexlify
 from twisted.internet import defer
+from twisted.python import log
 
 import libtorrent as lt
 import time
