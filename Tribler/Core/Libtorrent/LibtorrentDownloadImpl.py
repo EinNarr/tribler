@@ -315,8 +315,7 @@ class LibtorrentDownloadImpl(DownloadConfigInterface):
                     # If we only needed to perform checking, pause download after it is complete
                     self.pause_after_next_hashcheck = initialdlstatus == DLSTATUS_STOPPED
 
-                if self.get_mode() == DLMODE_VOD:
-                    self.set_vod_mode(True)
+                self.set_vod_mode(self.get_mode() == DLMODE_VOD)
 
                 self.handle.resolve_countries(True)
 
@@ -353,7 +352,7 @@ class LibtorrentDownloadImpl(DownloadConfigInterface):
             self._logger.debug("LibtorrentDownloadImpl: going into VOD mode %s", filename)
         else:
             self.handle.set_sequential_download(False)
-            self.handle.set_priority(0)
+            self.handle.set_priority(200)
             if self.get_vod_fileindex() >= 0:
                 self.set_byte_priority([(self.get_vod_fileindex(), 0, -1)], 1)
 

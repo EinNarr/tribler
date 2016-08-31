@@ -66,10 +66,16 @@ class BoostingSettings(object):
         self.time_check_interval = 2
         self.timeout_torrent_activity = 240
 
+        # multiplier for aware downloading
+        self.multiplier_credit_mining = 3
+
 class BoostingManager(TaskManager):
     """
     Class to manage all the credit mining activities
     """
+
+    MULTIPLIER_DL = [0, 0.2, 0.6, 1, 1.5, 3]
+    DEFAULT_PRIORITY_TORRENT = 5
 
     def __init__(self, session, settings=None):
         super(BoostingManager, self).__init__()
@@ -478,12 +484,16 @@ class BoostingManager(TaskManager):
 
         torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=pstate, hidden=True,
                                                   share_mode=not preload, checkpoint_disabled=True)
-        torrent['download'].set_priority(torrent.get('prio', 1))
+        torrent['download'].set_priority(torrent.get('prio', self.DEFAULT_PRIORITY_TORRENT))
 
         torrent['time']['last_started'] = time.time()
 
         # assume last activity when start downloading
         torrent['time']['last_activity'] = time.time()
+
+        # if it's paused
+        if torrent['download'].handle:
+            torrent['download'].handle.resume()
 
     def stop_download(self, infohash, remove_torrent=False):
         """
@@ -493,7 +503,7 @@ class BoostingManager(TaskManager):
         infohash = hexlify(infohash)
 
         self._logger.info("Stopping %s", str(infohash))
-        download = torrent.pop('download', False)
+        download = torrent.get('download', None)
         if download:
             handle = download.handle
             if not handle.is_valid():
@@ -511,7 +521,7 @@ class BoostingManager(TaskManager):
 
                 if infohash_bin in self.torrents:
                     _torrent = self.torrents[infohash_bin]
-                    _download = _torrent.pop('download', False)
+                    _download = _torrent.pop('download', None)
                 else:
                     self._logger.error("Can't find torrents in callback %s:%s", hexlify(infohash_bin),
                                        [hexlify(a) for a in self.torrents.keys()])
@@ -692,6 +702,51 @@ class BoostingManager(TaskManager):
                 tor['time']['all_download'] = status.all_time_download
                 tor['time']['all_upload'] = status.all_time_upload
 
+            self._logger.debug("Rate %s : %.1f kB/s dwn: %.1f kB/s up", status.info_hash, status.download_rate/1000,
+                               status.upload_rate/1000)
+
+
+        # check main download periodically
+        num_dl, total_prio_tor = self._check_main_download(self.settings.multiplier_credit_mining)
+
+        def _assign_priority(cm_priority):
+            _lt_torrents = self.session.lm.ltmgr.get_session().get_torrents()
+
+            for _lt_torrent in _lt_torrents:
+                _status = _lt_torrent.status()
+                # change priority (reduce load on main downloading)
+                if cm_priority and int(cm_priority) != _status.priority:
+                    _lt_torrent.set_priority(1)
+                    self._logger.info("Change priority %s from %d to %d", _status.info_hash,
+                                      _status.get_priority(), cm_priority)
+
+        # 1 is the lowest priority we'd want to assign
+        new_prio = (total_prio_tor/float(num_dl) if num_dl else self.DEFAULT_PRIORITY_TORRENT) or 1
+        _assign_priority(new_prio)
+
+    def _check_main_download(self, idx_multiplier):
+
+        total_cm_prio = sum([tr['download'].handle.status().priority or 0
+                             for tr in self.torrents.values()
+                             if tr and tr.get('download', False) and tr['download'].handle])
+
+        total_main_prio = sum([dl_impl.handle.status().priority or 0
+                               for dl_impl in self.session.lm.get_downloads()
+                               if dl_impl and dl_impl.handle and
+                               dl_impl.tdef.get_infohash() not in self.torrents])
+
+        ret_cm_prio = total_cm_prio
+
+        # self._logger.debug("Priority(Main/Total Current CM/Total New CM) : (%d/%d/%d)", total_main_prio, total_cm_prio,
+        #                    ret_cm_prio)
+
+        # if main downloading not that much, we can continue as it is
+        # else, reduce priority
+        if total_main_prio >= total_cm_prio:
+            ret_cm_prio = total_cm_prio - self.MULTIPLIER_DL[idx_multiplier]*\
+                                          (total_main_prio-total_cm_prio)
+
+        return len([tr for tr in self.torrents.values() if tr and tr.get('download', False)]), ret_cm_prio
 
     def update_torrent_stats(self, torrent_infohash_str, seeding_stats):
         """
