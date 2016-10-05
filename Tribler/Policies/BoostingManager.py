@@ -29,6 +29,7 @@ from Tribler.Policies.defs import SAVED_ATTR, CREDIT_MINING_FOLDER_DOWNLOAD, CON
 from Tribler.dispersy.taskmanager import TaskManager
 
 
+
 class BoostingSettings(object):
     """
     This class contains settings used by the boosting manager
@@ -81,6 +82,16 @@ class BoostingManager(TaskManager):
         super(BoostingManager, self).__init__()
         self._logger = logging.getLogger(self.__class__.__name__)
 
+        logFormatter = logging.Formatter("%(asctime)s.%(msecs).03dZ-%(message)s", datefmt="%Y%m%dT%H%M%S")
+        logFormatter.converter = time.gmtime
+        fileHandler = logging.FileHandler("session_stat.log", mode="w")
+        fileHandler.setFormatter(logFormatter)
+        fileHandler.setLevel(logging.NOTSET)
+
+        self.rootLogger = logging.getLogger("session_stat")
+        self.rootLogger.addHandler(fileHandler)
+        self.rootLogger.setLevel(logging.NOTSET)
+
         BoostingManager.__single = self
         self.boosting_sources = {}
         self.torrents = {}
@@ -130,6 +141,9 @@ class BoostingManager(TaskManager):
                            self.settings.time_check_interval, interval=self.settings.time_check_interval)
 
         self.register_task("process resume", LoopingCall(self.__process_resume_alert), 10, interval=5)
+
+        self.register_task("Sessionstats_log", LoopingCall(self.log_session_statistics),
+                           self.settings.initial_logging_interval, interval=5)
 
 
     def shutdown(self):
@@ -761,3 +775,15 @@ class BoostingManager(TaskManager):
                 self.torrents[torrent_infohash_str]['last_seeding_stats'] = seeding_stats
         else:
             self.torrents[torrent_infohash_str]['last_seeding_stats'] = seeding_stats
+
+    def log_session_statistics(self):
+        """Log session statistics"""
+        status = self.session.lm.ltmgr.get_session().status()
+
+        self.rootLogger.error("SESSIONSTAT>%s:%s:%s:%s:%s:%s:%s:%s:%d",
+                         status.total_download, status.total_upload,
+                         status.total_payload_download, status.total_payload_upload,
+                         status.total_dht_download, status.total_dht_upload,
+                         status.total_ip_overhead_download, status.total_ip_overhead_upload,
+                         status.num_unchoked)
+
