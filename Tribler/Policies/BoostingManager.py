@@ -43,6 +43,15 @@ handler = logging.FileHandler("boosting.log", mode="w")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+logFormatter = logging.Formatter("%(asctime)s.%(msecs).03dZ-%(message)s", datefmt="%Y%m%dT%H%M%S")
+logFormatter.converter = time.gmtime
+rootLogger = logging.getLogger("session_stat")
+rootLogger.setLevel(logging.DEBUG)
+fileHandler = logging.FileHandler("session_stat.log", mode="w")
+fileHandler.setFormatter(logFormatter)
+rootLogger.addHandler(fileHandler)
+
+
 #logging.getLogger(TimedTaskQueue.__name__+"BoostingManager").setLevel(
 #            logging.DEBUG)
 
@@ -172,6 +181,9 @@ class BoostingManager(object):
         self.tqueue.add_task(self.scrape_trackers,
                              self.initial_tracker_interval)
         self.tqueue.add_task(self.log_statistics,
+                             self.initial_logging_interval)
+
+        self.tqueue.add_task(self.log_session_statistics,
                              self.initial_logging_interval)
 
     def get_instance(*args, **kw):
@@ -462,6 +474,19 @@ class BoostingManager(object):
                     logger.debug("Non zero priorities for %s : %s",
                                  status.info_hash, non_zero_values)
         self.tqueue.add_task(self.log_statistics, self.logging_interval)
+
+    def log_session_statistics(self):
+        """Log session statistics"""
+        status = self.ltmgr.ltsession.status()
+
+        rootLogger.debug("%s:%s:%s:%s:%s:%s:%s:%s:%d:%d",
+                         status.total_download, status.total_upload,
+                         status.total_payload_download, status.total_payload_upload,
+                         status.total_dht_download, status.total_dht_upload,
+                         status.total_ip_overhead_download, status.total_ip_overhead_upload,
+                         status.peerlist_size, status.num_unchoked)
+
+        self.tqueue.add_task(self.log_session_statistics, 5)
 
 
 class BoostingSource(object):
