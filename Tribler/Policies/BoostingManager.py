@@ -731,8 +731,8 @@ class BoostingManager(TaskManager):
                 # change priority (reduce load on main downloading)
                 if cm_priority and int(cm_priority) != _status.priority:
                     _lt_torrent.set_priority(1)
-                    self._logger.info("Change priority %s from %d to %d", _status.info_hash,
-                                      _status.get_priority(), cm_priority)
+                    # self._logger.info("Change priority %s from %d to %d", _status.info_hash,
+                    #                   _status.get_priority(), cm_priority)
 
         # 1 is the lowest priority we'd want to assign
         new_prio = (total_prio_tor/float(num_dl) if num_dl else self.DEFAULT_PRIORITY_TORRENT) or 1
