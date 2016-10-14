@@ -670,10 +670,13 @@ class BoostingManager(TaskManager):
         for lt_torrent in lt_torrents:
             status = lt_torrent.status()
 
-            if unhexlify(str(status.info_hash)) in self.torrents:
-                self._logger.debug("Status for %s : %s %s | ul_lim : %d, max_ul %d, maxcon %d", status.info_hash,
-                                   status.all_time_download, status.all_time_upload, lt_torrent.upload_limit(),
-                                   lt_torrent.max_uploads(), lt_torrent.max_connections())
+            infohash = unhexlify(str(status.info_hash))
+
+            if infohash in self.torrents:
+                self._logger.debug("Status for %s : %s %s | s/l : %d/%d, isdl:%s", status.info_hash,
+                                   status.all_time_download, status.all_time_upload,
+                                   self.torrents[infohash]['num_seeders'], self.torrents[infohash]['num_leechers'],
+                                   self.torrents[infohash].get('download'))
 
                 # TODO(ardhi) : disable piece priorities call
                 # piece_priorities will fail in libtorrent 1.0.9
