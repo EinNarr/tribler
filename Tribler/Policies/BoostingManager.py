@@ -121,10 +121,12 @@ class BoostingManager(TaskManager):
 
         self.pre_session = self.session.lm.ltmgr.create_session()
 
-        self.session.lm.ltmgr.get_session().set_settings(
-            {'share_mode_target': self.settings.share_mode_target,
-             'active_limit': 50, 'active_seeds': 35,
-             'upload_rate_limit': 0, 'seed_choking_algorithm': 1}) # choking fastest_upload
+        ss = self.session.lm.ltmgr.get_session().get_settings()
+        ss['share_mode_target'] = self.settings.share_mode_target
+        ss['upload_rate_limit'] = 0
+        ss['seed_choking_algorithm'] = 1
+        ss['num_outgoing_ports'] = 0
+        self.session.lm.ltmgr.get_session().set_settings(ss)
 
         self.session.add_observer(self.on_torrent_notify, NTFY_TORRENTS, [NTFY_UPDATE])
 
