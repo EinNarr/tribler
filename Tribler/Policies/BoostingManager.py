@@ -98,6 +98,8 @@ class BoostingManager(TaskManager):
 
         self.session = session
 
+        self.finish_pre_dl = {}
+
         # use provided settings or a default one
         self.settings = settings or BoostingSettings(session, load_config=True)
 
@@ -304,7 +306,7 @@ class BoostingManager(TaskManager):
         deferred_handle.addCallback(_on_finish)
         deferred_handle.addErrback(log.err)
 
-        self.finish_pre_dl[infohash] = False
+        self.finish_pre_dl[infohash] = 0.0
 
         def _check_swarm_peers(thandle, started_time):
             for p in thandle.get_peer_info():
@@ -315,7 +317,7 @@ class BoostingManager(TaskManager):
             elapsed_time = time.time() - started_time
 
             # maximal waiting time : after 3600 seconds (1 hour)
-            if elapsed_time > 3600:
+            if elapsed_time > 3600 and not self.finish_pre_dl[infohash]:
                 self.cancel_pending_task("pre_download_%s" %hexlify(infohash))
                 if status.progress < 1.0:
                     self._logger.debug("%s timeout pre-downloading with %f", hexlify(infohash), status.progress)
@@ -324,15 +326,15 @@ class BoostingManager(TaskManager):
                 thandle.save_resume_data()
 
             # finished but waiting for more peers data for 10 minute
-            if elapsed_time > 600 and self.finish_pre_dl[infohash]:
+            if self.finish_pre_dl[infohash] and time.time() - self.finish_pre_dl[infohash] > 600:
                 self.cancel_pending_task("pre_download_%s" %hexlify(infohash))
                 thandle.pause()
                 thandle.save_resume_data()
 
             # just finished, setting the flags
             if status.progress == 1.0 and not self.finish_pre_dl[infohash]:
-                self._logger.debug("%s finish pre-downloading by %s", hexlify(infohash), time.time() - started_time)
-                self.finish_pre_dl[infohash] = True
+                self._logger.info("%s finish pre-downloading by %s", hexlify(infohash), time.time() - started_time)
+                self.finish_pre_dl[infohash] = time.time()
 
         self.register_task("pre_download_%s" % hexlify(infohash), LoopingCall(_check_swarm_peers, thandle, time.time()), 0,  interval=2)
         thandle.resume()
