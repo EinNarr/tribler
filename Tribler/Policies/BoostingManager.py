@@ -356,6 +356,7 @@ class BoostingManager(TaskManager):
             torrent['predownload'] = "_" + hexlify(infohash) + '.state'
         else:
             torrent['predownload'] = self._pre_download_torrent(source, infohash, torrent)
+            ##REPLACETHIS##
 
         torrent['source'] = source_to_string(source)
 
