@@ -28,7 +28,7 @@ from Tribler.Core.TorrentDef import TorrentDef
 from Tribler.Core.simpledefs import NTFY_INSERT, NTFY_TORRENTS, NTFY_UPDATE
 from Tribler.Core.version import version_id
 from Tribler.Main.Utility.GuiDBTuples import Torrent, Channel
-from Tribler.Policies.credit_mining_util import TorrentManagerCM, ent2chr
+from Tribler.Policies.credit_mining_util import TorrentManagerCM, ent2chr, source_to_string
 from Tribler.community.allchannel.community import AllChannelCommunity
 from Tribler.community.channel.community import ChannelCommunity
 from Tribler.dispersy.exception import CommunityNotFoundException
@@ -83,7 +83,7 @@ class BoostingSource(TaskManager):
         self.register_task(str(self.source) + "_load", d, value=self.source)
 
         self.register_task("check_availability %s" %self.source, LoopingCall(self.check_available), 60, interval=60)
-        self._logger.debug("Start mining on %s", self.source)
+        self._logger.debug("Start mining on %s", source_to_string(self.source))
 
     def kill_tasks(self):
         """
