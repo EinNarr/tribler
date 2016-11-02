@@ -348,7 +348,7 @@ class BoostingManager(TaskManager):
         """
 
         # Remember where we got this torrent from
-        self._logger.debug("remember torrent %s from %s", torrent['name'], source_to_string(source))
+        # self._logger.debug("remember torrent %s from %s", torrent['name'], source_to_string(source))
 
         torrent['peers'] = {}
 
@@ -442,8 +442,8 @@ class BoostingManager(TaskManager):
                 self.torrents[infohash]['num_leechers'] = num_leech
                 force_scrape = True
 
-            self._logger.debug("Seeder/leecher data %s translated from peers : seeder %s, leecher %s",
-                               hexlify(infohash), num_seed, num_leech)
+            # self._logger.debug("Seeder/leecher data %s translated from peers : seeder %s, leecher %s",
+            #                    hexlify(infohash), num_seed, num_leech)
 
             # check health(seeder/leecher)
             self.session.lm.torrent_checker.add_gui_request(infohash, force_scrape)
