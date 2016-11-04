@@ -122,12 +122,19 @@ class BoostingManager(TaskManager):
             os.makedirs(self.settings.credit_mining_path)
 
         self.pre_session = self.session.lm.ltmgr.create_session()
+        ss = self.pre_session.get_settings()
+        ss['disable_hash_checks'] = True
+        ss['allow_reordered_disk_operations'] = True
+        self.pre_session.set_settings(ss)
 
         ss = self.session.lm.ltmgr.get_session().get_settings()
         ss['share_mode_target'] = self.settings.share_mode_target
         ss['upload_rate_limit'] = 0
         ss['seed_choking_algorithm'] = 1
         ss['num_outgoing_ports'] = 0
+        ss['max_suggest_pieces'] = 20
+        ss['connection_speed'] = 200
+        ss['num_want'] = 100
         self.session.lm.ltmgr.get_session().set_settings(ss)
 
         self.session.add_observer(self.on_torrent_notify, NTFY_TORRENTS, [NTFY_UPDATE])
@@ -335,6 +342,18 @@ class BoostingManager(TaskManager):
             if status.progress == 1.0 and not self.finish_pre_dl[infohash]:
                 self._logger.info("%s finish pre-downloading by %s", hexlify(infohash), time.time() - started_time)
                 self.finish_pre_dl[infohash] = time.time()
+
+                # stop uploading
+                thandle.set_max_uploads(0)
+
+                tfile = thandle.torrent_file()
+
+                # fill with fakes data to attract other peer
+                # piece_num = len(thandle.piece_priorities())
+                # midpiece = '0' * tfile.piece_size(0)
+                # for p_idx in xrange(5, piece_num):
+                #     thandle.add_piece(p_idx, midpiece if p_idx < piece_num-1 else '0' * tfile.piece_size(piece_num-1)
+                #                       , 0)
 
         self.register_task("pre_download_%s" % hexlify(infohash), LoopingCall(_check_swarm_peers, thandle, time.time()), 0,  interval=2)
         thandle.resume()
