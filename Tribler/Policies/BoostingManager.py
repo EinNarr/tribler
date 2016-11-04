@@ -6,7 +6,7 @@ import logging
 import os
 import shutil
 from binascii import hexlify, unhexlify
-from twisted.internet import defer
+from twisted.internet import defer, reactor
 from twisted.python import log
 
 import libtorrent as lt
@@ -293,10 +293,16 @@ class BoostingManager(TaskManager):
                 # call the callback to start boosting on this torrent
                 self.torrents[a.resume_data['info-hash']]['predownload'].callback(a.handle)
 
-    def _pre_download_torrent(self, source, infohash, torrent):
+    def _pre_download_torrent(self, source, infohash, torrent, defer_obj=None):
         tdef = torrent['metainfo']
         metainfo = tdef.get_metainfo()
         torrentinfo = lt.torrent_info(metainfo)
+
+        deferred_handle = defer_obj or defer.Deferred()
+
+        if len(self.pre_session.get_torrents()) > 500:
+            reactor.callLater(20, self._pre_download_torrent, source, infohash, torrent, defer_obj)
+            return deferred_handle
 
         self._logger.info("%s start pre-downloading", hexlify(infohash))
 
@@ -325,7 +331,7 @@ class BoostingManager(TaskManager):
             self._logger.debug("peers %s : %s", hexlify(infohash), out or "None")
             return infohash
 
-        deferred_handle = defer.Deferred()
+
         deferred_handle.addCallback(_on_finish)
         deferred_handle.addErrback(log.err)
 
