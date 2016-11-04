@@ -122,12 +122,28 @@ class BoostingManager(TaskManager):
             os.makedirs(self.settings.credit_mining_path)
 
         self.pre_session = self.session.lm.ltmgr.create_session()
+        # self.pre_session.set_settings(lt.high_performance_seed())
         ss = self.pre_session.get_settings()
         ss['disable_hash_checks'] = True
         ss['allow_reordered_disk_operations'] = True
         self.pre_session.set_settings(ss)
 
+        hpc_settings = lt.high_performance_seed()
+        changed_settings = ['request_timeout', 'active_limit', 'peer_timeout', 'max_allowed_in_request_queue',
+                            'active_seeds', 'low_prio_disk', 'dht_upload_rate_limit', 'send_buffer_watermark',
+                            'recv_socket_buffer_size', 'send_buffer_watermark_factor', 'allowed_fast_set_size'
+                            'num_outgoing_ports', 'alert_queue_size', 'utp_dynamic_sock_buf', 'suggest_mode',
+                            'send_socket_buffer_size', 'cache_expiry', 'active_tracker_limit', 'active_dht_limit',
+                            'mixed_mode_algorithm', 'cache_buffer_chunk_size', 'file_pool_size', 'max_failcount',
+                            'inactivity_timeout', 'connections_limit', 'send_buffer_low_watermark', 'max_rejects',
+                            'max_queued_disk_bytes',  'read_job_every', 'unchoke_slots_limit', 'connection_speed',
+                            'max_http_recv_buffer_size', 'max_out_request_queue', 'listen_queue_size', 'cache_size']
+
         ss = self.session.lm.ltmgr.get_session().get_settings()
+        for c in changed_settings:
+            if hasattr(hpc_settings, c):
+                ss[c] = getattr(hpc_settings, c)
+
         ss['share_mode_target'] = self.settings.share_mode_target
         ss['upload_rate_limit'] = 0
         ss['seed_choking_algorithm'] = 1
