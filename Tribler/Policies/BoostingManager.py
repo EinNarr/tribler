@@ -328,6 +328,13 @@ class BoostingManager(TaskManager):
                           peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
                           peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['recipro'])
 
+            num_seed, num_leech = utilities.translate_peers_into_health(self.torrents[infohash]['peers'].values())
+            self.torrents[infohash]['num_seeders'] = self.torrents[infohash]['num_seeders'] or num_seed
+            self.torrents[infohash]['num_leechers'] = self.torrents[infohash]['num_leechers'] or num_leech
+
+            self._logger.debug("Seeder/leecher data %s translated from peers : seeder %s, leecher %s",
+                                hexlify(infohash), num_seed, num_leech)
+
             self._logger.debug("peers %s : %s", hexlify(infohash), out or "None")
             return infohash
 
@@ -483,8 +490,9 @@ class BoostingManager(TaskManager):
                 self.torrents[infohash]['num_leechers'] = num_leech
                 force_scrape = True
 
-            # self._logger.debug("Seeder/leecher data %s translated from peers : seeder %s, leecher %s",
-            #                    hexlify(infohash), num_seed, num_leech)
+            if force_scrape:
+                self._logger.debug("Seeder/leecher data %s translated from peers : seeder %s, leecher %s",
+                                   hexlify(infohash), num_seed, num_leech)
 
             # check health(seeder/leecher)
             self.session.lm.torrent_checker.add_gui_request(infohash, force_scrape)
