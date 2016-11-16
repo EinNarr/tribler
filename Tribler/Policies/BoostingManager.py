@@ -435,6 +435,9 @@ class BoostingManager(TaskManager):
         torrent['time']['last_activity'] = 0.0
         torrent['time']['timeout'] = self.settings.timeout_torrent_activity
 
+        torrent['availability'] = 0.0
+        torrent['livepeers'] = []
+
         self.torrents[infohash] = torrent
 
     def on_torrent_notify(self, subject, change_type, infohash):
@@ -507,6 +510,26 @@ class BoostingManager(TaskManager):
         else:
             self._logger.error("Could not set archive mode for unknown source %s", source)
 
+    def __bdl_callback(self, ds):
+        ihash_str = ds.get_download().tdef.get_infohash().encode('hex')
+
+        peers = [x for x in ds.get_peerlist() if any(x['have']) and not
+                 x['ip'].startswith("127.0.0")]
+
+        ds.get_peerlist = lambda: peers
+
+        availability = ds.get_availability()
+        ihash = unhexlify(ihash_str)
+
+        if ihash in self.torrents.keys():
+            self.torrents[ihash]['availability'] = availability
+            self.torrents[ihash]['livepeers'] = peers
+            for peer in self.torrents[ihash]['livepeers']:
+                self.__insert_peer(ihash, peer['ip'], peer)
+
+
+        return 1.0, True
+
     def start_download(self, infohash):
         """
         Start downloading a particular torrent and add it to download list in Tribler
@@ -554,6 +577,7 @@ class BoostingManager(TaskManager):
         torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=pstate, hidden=True,
                                                   share_mode=not preload, checkpoint_disabled=True)
         torrent['download'].set_priority(torrent.get('prio', self.DEFAULT_PRIORITY_TORRENT))
+        torrent['download'].set_state_callback(self.__bdl_callback, True)
 
         torrent['time']['last_started'] = time.time()
 
