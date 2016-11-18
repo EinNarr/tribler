@@ -18,7 +18,7 @@ from Tribler.Core.Libtorrent.LibtorrentDownloadImpl import LibtorrentDownloadImp
 from Tribler.Core.Utilities import utilities
 from Tribler.Core.exceptions import OperationNotPossibleAtRuntimeException
 from Tribler.Core.simpledefs import DLSTATUS_SEEDING, NTFY_TORRENTS, NTFY_UPDATE, NTFY_CHANNELCAST
-from Tribler.Policies.BoostingPolicy import SeederRatioPolicy
+from Tribler.Policies.BoostingPolicy import ScoringPolicy
 from Tribler.Policies.BoostingSource import ChannelSource
 from Tribler.Policies.BoostingSource import DirectorySource
 from Tribler.Policies.BoostingSource import RSSFeedSource
@@ -34,7 +34,7 @@ class BoostingSettings(object):
     """
     This class contains settings used by the boosting manager
     """
-    def __init__(self, session, policy=SeederRatioPolicy, load_config=True):
+    def __init__(self, session, policy=ScoringPolicy, load_config=True):
         self.session = session
 
         # Configurable parameter (changeable in runtime -plus sources-)

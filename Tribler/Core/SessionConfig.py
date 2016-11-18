@@ -23,7 +23,7 @@ from Tribler.Core.Utilities.network_utils import autodetect_socket_style, get_ra
 from Tribler.Core.defaults import sessdefaults
 from Tribler.Core.osutils import get_appstate_dir, is_android
 from Tribler.Core.simpledefs import STATEDIR_SESSCONFIG
-from Tribler.Policies.BoostingPolicy import CreationDatePolicy, BoostingPolicy
+from Tribler.Policies.BoostingPolicy import CreationDatePolicy, BoostingPolicy, ScoringPolicy
 from Tribler.Policies.BoostingPolicy import RandomPolicy
 from Tribler.Policies.BoostingPolicy import SeederRatioPolicy
 
@@ -954,7 +954,8 @@ class SessionConfigInterface(object):
         switch_policy = {
             RandomPolicy: "random",
             CreationDatePolicy: "creation",
-            SeederRatioPolicy: "seederratio"
+            SeederRatioPolicy: "seederratio",
+            ScoringPolicy: "scoring"
         }
 
         if isinstance(policy_str, BoostingPolicy):
@@ -973,7 +974,8 @@ class SessionConfigInterface(object):
             switch_policy = {
                 "random": RandomPolicy,
                 "creation": CreationDatePolicy,
-                "seederratio": SeederRatioPolicy
+                "seederratio": SeederRatioPolicy,
+                "scoring": ScoringPolicy
             }
 
             ret = switch_policy[policy_str]
