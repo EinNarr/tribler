@@ -10,7 +10,8 @@ import sys
 from distutils.spawn import find_executable
 from shutil import copyfile
 
-from Tribler.Core.CreditMining.BoostingPolicy import CreationDatePolicy, SeederRatioPolicy, RandomPolicy, BoostingPolicy
+from Tribler.Core.CreditMining.BoostingPolicy import CreationDatePolicy, SeederRatioPolicy, RandomPolicy, \
+    BoostingPolicy, ScoringPolicy
 from Tribler.Core.Utilities.configparser import CallbackConfigParser
 from Tribler.Core.Utilities.install_dir import determine_install_dir
 from Tribler.Core.Utilities.network_utils import autodetect_socket_style, get_random_port
@@ -974,7 +975,8 @@ class SessionConfigInterface(object):
         switch_policy = {
             RandomPolicy: "random",
             CreationDatePolicy: "creation",
-            SeederRatioPolicy: "seederratio"
+            SeederRatioPolicy: "seederratio",
+            ScoringPolicy: "scoring"
         }
 
         if isinstance(policy_str, BoostingPolicy):
@@ -993,7 +995,8 @@ class SessionConfigInterface(object):
             switch_policy = {
                 "random": RandomPolicy,
                 "creation": CreationDatePolicy,
-                "seederratio": SeederRatioPolicy
+                "seederratio": SeederRatioPolicy,
+                "scoring": ScoringPolicy
             }
 
             ret = switch_policy[policy_str]
