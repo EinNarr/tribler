@@ -265,12 +265,13 @@ class BoostingManager(TaskManager):
 
             self._logger.info("Torrents download stopped and removed")
 
-    def __insert_peer(self, infohash, ip, peer):
+    def __insert_peer(self, infohash, ip, port, peer):
         peerlist = self.torrents[infohash]['peers']
-        if ip not in peerlist.keys():
-            self.torrents[infohash]['peers'][ip] = peer
+        new_key = "%s:%s" % (ip, port)
+        if new_key not in peerlist.keys():
+            self.torrents[infohash]['peers'][new_key] = peer
         else:
-            stored_peer = self.torrents[infohash]['peers'][ip]
+            stored_peer = self.torrents[infohash]['peers'][new_key]
 
             #TODO(ardhi) : compare stored peer data with new peer data here
             # Example :
@@ -278,7 +279,7 @@ class BoostingManager(TaskManager):
             # if stored_peer['completed'] != peer['completed']:
             # if stored_peer['uinterested'] != peer['uinterested']:
 
-            self.torrents[infohash]['peers'][ip] = peer
+            self.torrents[infohash]['peers'][new_key] = peer
 
     def __process_resume_alert(self):
         _alerts = self.pre_session.pop_alerts() or []
@@ -323,8 +324,8 @@ class BoostingManager(TaskManager):
 
             out = ""
             for peer in self.torrents[infohash]['peers'].values():
-                out += "torrent:%s\tip:%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\trecipro:%d++" \
-                        %(hexlify(infohash), peer['ip'], peer['alluprate'], peer['alldownrate'], peer['num_pieces'], peer['completed'],
+                out += "torrent:%s\tip:%s-%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\trecipro:%d++" \
+                        %(hexlify(infohash), peer['ip'], peer['port'], peer['alluprate'], peer['alldownrate'], peer['num_pieces'], peer['completed'],
                           peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
                           peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['recipro'])
 
@@ -347,7 +348,7 @@ class BoostingManager(TaskManager):
         def _check_swarm_peers(thandle, started_time):
             for p in thandle.get_peer_info():
                 peer = LibtorrentDownloadImpl.create_peerlist_data(p)
-                self.__insert_peer(infohash, peer['ip'], peer)
+                self.__insert_peer(infohash, peer['ip'], peer['port'], peer)
 
             status = thandle.status()
             elapsed_time = time.time() - started_time
@@ -481,7 +482,7 @@ class BoostingManager(TaskManager):
                 peer = LibtorrentDownloadImpl.create_peerlist_data(i)
 
                 # update peer information
-                self.__insert_peer(infohash, peer['ip'], peer)
+                self.__insert_peer(infohash, peer['ip'], peer['port'], peer)
 
             num_seed, num_leech = utilities.translate_peers_into_health(self.torrents[infohash]['peers'].values())
 
@@ -525,7 +526,7 @@ class BoostingManager(TaskManager):
             self.torrents[ihash]['availability'] = availability
             self.torrents[ihash]['livepeers'] = peers
             for peer in self.torrents[ihash]['livepeers']:
-                self.__insert_peer(ihash, peer['ip'], peer)
+                self.__insert_peer(ihash, peer['ip'], peer['port'], peer)
 
 
         return 1.0, True
@@ -759,8 +760,8 @@ class BoostingManager(TaskManager):
 
                 out = ""
                 for peer in self.torrents[infohash]['peers'].values():
-                    out += "torrent:%s\tip:%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\trecipro:%d++" \
-                            %(hexlify(infohash), peer['ip'], peer['alluprate'], peer['alldownrate'], peer['num_pieces'], peer['completed'],
+                    out += "torrent:%s\tip:%s-%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\trecipro:%d++" \
+                            %(hexlify(infohash), peer['ip'], peer['port'], peer['alluprate'], peer['alldownrate'], peer['num_pieces'], peer['completed'],
                               peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
                               peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['recipro'])
 
