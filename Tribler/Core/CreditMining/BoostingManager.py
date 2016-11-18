@@ -9,13 +9,12 @@ import os
 import shutil
 from binascii import hexlify, unhexlify
 
-import libtorrent as lt
 import time
+import libtorrent as lt
+
 
 from twisted.internet import defer
 from twisted.internet.task import LoopingCall
-
-import libtorrent as lt
 
 from Tribler.Core.CreditMining.BoostingPolicy import SeederRatioPolicy
 from Tribler.Core.CreditMining.BoostingSource import ChannelSource
