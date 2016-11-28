@@ -5,6 +5,7 @@ import glob
 import logging
 import os
 import shutil
+import random
 from binascii import hexlify, unhexlify
 from twisted.internet import defer, reactor
 from twisted.python import log
@@ -69,6 +70,10 @@ class BoostingSettings(object):
 
         # multiplier for aware downloading
         self.multiplier_credit_mining = 3
+
+        # predownload variable
+        self.piece_download = 4
+
 
 class BoostingManager(TaskManager):
     """
@@ -313,10 +318,12 @@ class BoostingManager(TaskManager):
 
         # only download 4 pieces
         thandle.prioritize_pieces([0]*len(thandle.piece_priorities()))
-        thandle.piece_priority(0, 7)
-        thandle.piece_priority(1, 7)
-        thandle.piece_priority(2, 7)
-        thandle.piece_priority(3, 7)
+        # thandle.piece_priority(0, 7)
+        thandle.piece_priority(random.randint(0, len(thandle.piece_priorities()) - 1), 7)
+        # thandle.piece_priority(2, 7)
+        # thandle.piece_priority(3, 7)
+
+
 
         def _on_finish(_thandle):
             self.pre_session.remove_torrent(_thandle, 0)
@@ -324,10 +331,10 @@ class BoostingManager(TaskManager):
 
             out = ""
             for peer in self.torrents[infohash]['peers'].values():
-                out += "torrent:%s\tip:%s-%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\trecipro:%d++" \
+                out += "torrent:%s\tip:%s-%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\tuhasqueries:%d++" \
                         %(hexlify(infohash), peer['ip'], peer['port'], peer['alluprate'], peer['alldownrate'], peer['num_pieces'], peer['completed'],
                           peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
-                          peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['recipro'])
+                          peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['uhasqueries'])
 
             num_seed, num_leech = utilities.translate_peers_into_health(self.torrents[infohash]['peers'].values())
             self.torrents[infohash]['num_seeders'] = self.torrents[infohash]['num_seeders'] or num_seed
@@ -346,7 +353,9 @@ class BoostingManager(TaskManager):
         self.finish_pre_dl[infohash] = 0.0
 
         def _check_swarm_peers(thandle, started_time):
-            for p in thandle.get_peer_info():
+            peers_info = thandle.get_peer_info()
+
+            for p in peers_info:
                 peer = LibtorrentDownloadImpl.create_peerlist_data(p)
                 self.__insert_peer(infohash, peer['ip'], peer['port'], peer)
 
@@ -370,13 +379,20 @@ class BoostingManager(TaskManager):
 
             # just finished, setting the flags
             if status.progress == 1.0 and not self.finish_pre_dl[infohash]:
-                self._logger.info("%s finish pre-downloading by %s", hexlify(infohash), time.time() - started_time)
-                self.finish_pre_dl[infohash] = time.time()
+                if status.num_pieces == self.settings.piece_download:
+                    self._logger.info("%s finish pre-downloading by %s", hexlify(infohash), time.time() - started_time)
+                    self.finish_pre_dl[infohash] = time.time()
 
-                # stop uploading
-                thandle.set_max_uploads(0)
+                    # stop uploading
+                    thandle.set_max_uploads(0)
 
-                tfile = thandle.torrent_file()
+                    tfile = thandle.torrent_file()
+                else:
+                    pieces_idx = self.download_pieces(self.settings.piece_download - 1, thandle)
+                    for p in pieces_idx:
+                        self._logger.info("%s choose index %d to %d", hexlify(infohash),
+                                          p, self.settings.piece_download)
+                        thandle.piece_priority(p, 7)
 
                 # fill with fakes data to attract other peer
                 # piece_num = len(thandle.piece_priorities())
@@ -389,6 +405,51 @@ class BoostingManager(TaskManager):
         thandle.resume()
 
         return deferred_handle
+
+    def download_pieces(self, num_piece, thandle):
+        merged_bitfields = None
+
+        for p in thandle.get_peer_info():
+            peer = LibtorrentDownloadImpl.create_peerlist_data(p)
+            completed = peer.get('completed', 0)
+            have = peer.get('have', [])
+
+            if merged_bitfields is None:
+                merged_bitfields = [0] * len(have)
+
+            if completed == 1000000 or (have and all(have)):
+                for i in range(len(have)):
+                    merged_bitfields[i] += 1
+            else:
+                for i in range(len(have)):
+                    if have[i]:
+                        merged_bitfields[i] += 1
+
+        if merged_bitfields is None:
+            return []
+
+        rarest_piece = min(merged_bitfields)
+        if rarest_piece == max(merged_bitfields):
+            return []
+
+        rare_pieces = [i for i, x in enumerate(merged_bitfields) if x == rarest_piece]
+
+        for idx in rare_pieces:
+            if thandle.have_piece(idx):
+                rare_pieces.remove(idx)
+
+        if not rare_pieces:
+            return []
+
+        chosen_idx = random.choice(rare_pieces)
+        chosen_idxs = []
+        for y in xrange(0, min(num_piece, len(rare_pieces))):
+            while thandle.have_piece(chosen_idx) or chosen_idx in chosen_idxs:
+                chosen_idx = random.choice(rare_pieces)
+
+            chosen_idxs.append(chosen_idx)
+
+        return chosen_idxs
 
     def on_torrent_insert(self, source, infohash, torrent):
         """
@@ -760,10 +821,10 @@ class BoostingManager(TaskManager):
 
                 out = ""
                 for peer in self.torrents[infohash]['peers'].values():
-                    out += "torrent:%s\tip:%s-%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\trecipro:%d++" \
+                    out += "torrent:%s\tip:%s-%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\tuhasqueries:%d++" \
                             %(hexlify(infohash), peer['ip'], peer['port'], peer['alluprate'], peer['alldownrate'], peer['num_pieces'], peer['completed'],
                               peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
-                              peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['recipro'])
+                              peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['uhasqueries'])
 
                 self._logger.debug("peers %s : %s", hexlify(infohash), out or "None")
                 # TODO(ardhi) : disable piece priorities call
