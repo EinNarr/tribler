@@ -521,8 +521,9 @@ class BoostingManager(TaskManager):
             new_seed = tdict['num_seeders']
             new_leecher = tdict['num_leechers']
 
-            if new_seed - self.torrents[tdict['infohash']]['num_seeders'] \
-                    or new_leecher - self.torrents[tdict['infohash']]['num_leechers']:
+            if new_seed > self.torrents[tdict['infohash']]['num_seeders'] \
+                    or (new_seed == self.torrents[tdict['infohash']]['num_seeders'] and
+                        new_leecher < self.torrents[tdict['infohash']]['num_leechers']):
                 self.torrents[tdict['infohash']]['num_seeders'] = new_seed
                 self.torrents[tdict['infohash']]['num_leechers'] = new_leecher
                 self._logger.info("infohash %s : seeder/leecher changed seed:%d leech:%d",
