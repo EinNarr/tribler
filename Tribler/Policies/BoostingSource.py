@@ -190,6 +190,24 @@ class BoostingSource(TaskManager):
 
                 # blacklist this torrent for a while
                 self.blacklist_torrent[infohash] = time.time()
+            elif timediff > 900:
+                # trigger mining on idle.
+                # specs :   15 minutes idle (15 minute without activity)
+
+                download = boosting_torrent['time']['all_download']
+
+                if download and float(boosting_torrent['time']['all_upload'])/download < 2:
+                    continue
+                #           current ratio > 2 (we don't want the ratio is dropped near 1)
+
+                pieces_idx = self.session.lm.boosting_manager.download_pieces(4, boosting_torrent['download'].handle)
+
+                for p in pieces_idx:
+                    self._logger.debug("trigger download: %s choose index %d to %d", hexlify(infohash), p, len(pieces_idx))
+                    boosting_torrent['download'].handle.piece_priority(p, 7)
+
+                boosting_torrent['time']['last_activity'] = time.time()
+
 
         # recover blacklisted torrent
         for infohash in list(self.blacklist_torrent):
