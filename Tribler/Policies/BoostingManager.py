@@ -387,6 +387,16 @@ class BoostingManager(TaskManager):
                     thandle.set_max_uploads(0)
 
                     tfile = thandle.torrent_file()
+
+                    out = ""
+                    for peer in self.torrents[infohash]['peers'].values():
+                        out += "torrent:%s\tip:%s-%s\tuprate:%s\tdwnrate:%s\t#piece:%s\tprogress:%s\tpeak-up/down:%s/%s\tspeed:%d\tremote:%s/%s\twe:%s/%s\tsource:%d\trtt:%d\tcontype:%s\tuhasqueries:%d++" \
+                                %(hexlify(infohash), peer['ip'], peer['port'], peer['alluprate'], peer['alldownrate'], peer['num_pieces'], peer['completed'],
+                                  peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
+                                  peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['uhasqueries'])
+
+                    self._logger.debug("finishpeers %s : %s", hexlify(infohash), out or "None")
+
                 else:
                     pieces_idx = self.download_pieces(self.settings.piece_download - 1, thandle)
                     for p in pieces_idx:
@@ -827,7 +837,7 @@ class BoostingManager(TaskManager):
                               peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
                               peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['uhasqueries'])
 
-                self._logger.debug("peers %s : %s", hexlify(infohash), out or "None")
+                self._logger.debug("logpeers %s : %s", hexlify(infohash), out or "None")
                 # TODO(ardhi) : disable piece priorities call
                 # piece_priorities will fail in libtorrent 1.0.9
                 # if lt.__version__ == '1.0.9.0':
