@@ -326,11 +326,16 @@ class ChannelSource(BoostingSource):
                 # seeding stats from DownloadState
                 self.torrents[infohash]['last_seeding_stats'] = {}
 
-                del self.unavail_torrent[infohash]
+                try:
+                    del self.unavail_torrent[infohash]
 
-                if self.torrent_insert_callback:
-                    self.torrent_insert_callback(self.source, infohash, self.torrents[infohash])
-                self.database_updated = False
+                    if self.torrent_insert_callback:
+                        self.torrent_insert_callback(self.source, infohash, self.torrents[infohash])
+                    self.database_updated = False
+                except KeyError:
+                    self._logger.error("Race condition when deleting old reference. Ignoring and continue.")
+
+
 
         self._logger.debug("Unavailable #torrents : %d from %s", len(self.unavail_torrent), hexlify(self.source))
 
