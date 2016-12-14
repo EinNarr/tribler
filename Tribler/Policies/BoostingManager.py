@@ -470,6 +470,10 @@ class BoostingManager(TaskManager):
         # Remember where we got this torrent from
         # self._logger.debug("remember torrent %s from %s", torrent['name'], source_to_string(source))
 
+        if infohash not in self.torrents.keys() and self.session.get_download(infohash):
+            self._logger.info("Torrent being downloaded in main activity. Aborting.")
+            return
+
         torrent['peers'] = {}
 
         if self.session.lm.load_download_pstate_noexc(infohash):
@@ -837,7 +841,7 @@ class BoostingManager(TaskManager):
                               peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
                               peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['uhasqueries'])
 
-                self._logger.debug("logpeers %s : %s", hexlify(infohash), out or "None")
+                # self._logger.debug("logpeers %s : %s", hexlify(infohash), out or "None")
                 # TODO(ardhi) : disable piece priorities call
                 # piece_priorities will fail in libtorrent 1.0.9
                 # if lt.__version__ == '1.0.9.0':
