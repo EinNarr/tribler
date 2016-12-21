@@ -104,6 +104,8 @@ class BoostingManager(TaskManager):
         self.session = session
 
         self.finish_pre_dl = {}
+        self.attemps_pre_dl = {}
+        self.attemps0_pre_dl = {}
 
         # use provided settings or a default one
         self.settings = settings or BoostingSettings(session, load_config=True)
@@ -299,6 +301,10 @@ class BoostingManager(TaskManager):
                 # call the callback to start boosting on this torrent
                 self.torrents[a.resume_data['info-hash']]['predownload'].callback(a.handle)
 
+    def __pause_and_store(self, torrent_handle):
+        torrent_handle.pause()
+        torrent_handle.save_resume_data()
+
     def _pre_download_torrent(self, source, infohash, torrent, defer_obj=None):
         tdef = torrent['metainfo']
         metainfo = tdef.get_metainfo()
@@ -313,17 +319,23 @@ class BoostingManager(TaskManager):
         self._logger.info("%s start pre-downloading", hexlify(infohash))
 
         thandle = self.pre_session.add_torrent({'ti': torrentinfo, 'save_path': self.settings.credit_mining_path,
-                                         'flags': lt.add_torrent_params_flags_t.flag_sequential_download |
-                                                  lt.add_torrent_params_flags_t.flag_paused})
+                                         'flags': lt.add_torrent_params_flags_t.flag_paused})
+        thandle.set_priority(1)
+
+        if len(thandle.piece_priorities()) < self.settings.piece_download * 2:
+            self._logger.debug("Torrent %s too short with %d pieces", hexlify(infohash), len(thandle.piece_priorities()))
+
+            #remove torrent from library
+            torrent = self.torrents.pop(infohash, None)
+            self.boosting_sources[torrent['source']].torrents.pop(infohash)
+
+            # remove torrent from session
+            self.pre_session.remove_torrent(thandle, 1)
+            return defer.succeed(infohash)
 
         # only download 4 pieces
         thandle.prioritize_pieces([0]*len(thandle.piece_priorities()))
-        # thandle.piece_priority(0, 7)
         thandle.piece_priority(random.randint(0, len(thandle.piece_priorities()) - 1), 7)
-        # thandle.piece_priority(2, 7)
-        # thandle.piece_priority(3, 7)
-
-
 
         def _on_finish(_thandle):
             self.pre_session.remove_torrent(_thandle, 0)
@@ -346,7 +358,6 @@ class BoostingManager(TaskManager):
             self._logger.debug("peers %s : %s", hexlify(infohash), out or "None")
             return infohash
 
-
         deferred_handle.addCallback(_on_finish)
         deferred_handle.addErrback(log.err)
 
@@ -368,14 +379,12 @@ class BoostingManager(TaskManager):
                 if status.progress < 1.0:
                     self._logger.warn("%s timeout pre-downloading with %f", hexlify(infohash), status.progress)
 
-                thandle.pause()
-                thandle.save_resume_data()
+                self.__pause_and_store(thandle)
 
             # finished but waiting for more peers data for 10 minute
             if self.finish_pre_dl[infohash] and time.time() - self.finish_pre_dl[infohash] > 600:
                 self.cancel_pending_task("pre_download_%s" %hexlify(infohash))
-                thandle.pause()
-                thandle.save_resume_data()
+                self.__pause_and_store(thandle)
 
             # just finished, setting the flags
             if status.progress == 1.0 and not self.finish_pre_dl[infohash]:
@@ -398,20 +407,28 @@ class BoostingManager(TaskManager):
                     self._logger.debug("finishpeers %s : %s", hexlify(infohash), out or "None")
 
                 else:
+                    self.attemps_pre_dl[infohash] = self.attemps_pre_dl.get(infohash, 0) + 1
+                    if self.attemps_pre_dl[infohash] == 40:
+                        self.cancel_pending_task("pre_download_%s" %hexlify(infohash))
+                        self._logger.warn("%s too much attemps pre-downloading with %s", hexlify(infohash), elapsed_time)
+                        self.__pause_and_store(thandle)
+                        # self.torrents[infohash]['predownload'].callback(thandle)
+                        return
+
                     pieces_idx = self.download_pieces(self.settings.piece_download - 1, thandle)
                     for p in pieces_idx:
                         self._logger.info("%s choose index %d to %d", hexlify(infohash),
                                           p, self.settings.piece_download)
                         thandle.piece_priority(p, 7)
+            # elif status.progress == 0.0 and status.num_pieces == 0:
+            #     self.attemps0_pre_dl[infohash] = self.attemps0_pre_dl.get(infohash,0) + 1
+            #     if self.attemps0_pre_dl[infohash] == 40:
+            #         self.cancel_pending_task("pre_download_%s" %hexlify(infohash))
+            #         self._logger.warn("%s too much 0attemps pre-downloading with %s", hexlify(infohash), elapsed_time)
+            #         self.__pause_and_store(thandle)
 
-                # fill with fakes data to attract other peer
-                # piece_num = len(thandle.piece_priorities())
-                # midpiece = '0' * tfile.piece_size(0)
-                # for p_idx in xrange(5, piece_num):
-                #     thandle.add_piece(p_idx, midpiece if p_idx < piece_num-1 else '0' * tfile.piece_size(piece_num-1)
-                #                       , 0)
-
-        self.register_task("pre_download_%s" % hexlify(infohash), LoopingCall(_check_swarm_peers, thandle, time.time()), 0,  interval=2)
+        self.register_task("pre_download_%s" % hexlify(infohash), LoopingCall(_check_swarm_peers, thandle, time.time()),
+                           0,  interval=30)
         thandle.resume()
 
         return deferred_handle
@@ -455,7 +472,12 @@ class BoostingManager(TaskManager):
         chosen_idxs = []
         for y in xrange(0, min(num_piece, len(rare_pieces))):
             while thandle.have_piece(chosen_idx) or chosen_idx in chosen_idxs:
-                chosen_idx = random.choice(rare_pieces)
+                rare_pieces.remove(chosen_idx)
+                chosen_idx = random.choice(rare_pieces) if rare_pieces else -1
+                if chosen_idx == -1:
+                    break
+                if chosen_idx != -1:
+                    chosen_idx = random.choice(rare_pieces)
 
             chosen_idxs.append(chosen_idx)
 
@@ -514,7 +536,10 @@ class BoostingManager(TaskManager):
         torrent['availability'] = 0.0
         torrent['livepeers'] = []
 
-        self.torrents[infohash] = torrent
+        if isinstance(torrent['predownload'], defer.Deferred) and torrent['predownload'].called:
+            pass
+        else:
+            self.torrents[infohash] = torrent
 
     def on_torrent_notify(self, subject, change_type, infohash):
         """
