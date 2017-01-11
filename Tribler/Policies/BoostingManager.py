@@ -15,10 +15,11 @@ import time
 from twisted.internet.task import LoopingCall
 
 from Tribler.Core.DownloadConfig import DownloadStartupConfig, DefaultDownloadStartupConfig
+from Tribler.Core.DownloadState import DownloadState
 from Tribler.Core.Libtorrent.LibtorrentDownloadImpl import LibtorrentDownloadImpl
 from Tribler.Core.Utilities import utilities
 from Tribler.Core.exceptions import OperationNotPossibleAtRuntimeException
-from Tribler.Core.simpledefs import DLSTATUS_SEEDING, NTFY_TORRENTS, NTFY_UPDATE, NTFY_CHANNELCAST
+from Tribler.Core.simpledefs import DLSTATUS_SEEDING, NTFY_TORRENTS, NTFY_UPDATE, NTFY_CHANNELCAST, DLSTATUS_STOPPED
 from Tribler.Policies.BoostingPolicy import ScoringPolicy
 from Tribler.Policies.BoostingSource import ChannelSource
 from Tribler.Policies.BoostingSource import DirectorySource
@@ -355,7 +356,24 @@ class BoostingManager(TaskManager):
             self._logger.debug("Seeder/leecher data %s translated from peers : seeder %s, leecher %s",
                                 hexlify(infohash), num_seed, num_leech)
 
-            self._logger.debug("peers %s : %s", hexlify(infohash), out or "None")
+            class _DDownload:
+                def __init__(self):
+                    pass
+
+                def get_def(self):
+                    return self
+
+                def get_name(self):
+                    pass
+
+            ds_dummy = DownloadState(_DDownload(), DLSTATUS_STOPPED, None, None)
+            ds_dummy.get_peerlist = lambda: self.torrents[infohash]['peers'].values()
+            availability = ds_dummy.get_availability()
+
+            self.torrents[infohash]['availability'] = availability
+            self.torrents[infohash]['livepeers'] = self.torrents[infohash]['peers'].values()
+
+            self._logger.debug("peers %s %s : %s", availability, hexlify(infohash), out or "None")
             return infohash
 
         deferred_handle.addCallback(_on_finish)
@@ -533,8 +551,9 @@ class BoostingManager(TaskManager):
         torrent['time']['last_activity'] = 0.0
         torrent['time']['timeout'] = self.settings.timeout_torrent_activity
 
-        torrent['availability'] = 0.0
-        torrent['livepeers'] = []
+        if 'availability' not in torrent:
+            torrent['availability'] = 0.0
+            torrent['livepeers'] = []
 
         if isinstance(torrent['predownload'], defer.Deferred) and torrent['predownload'].called:
             pass
@@ -623,7 +642,7 @@ class BoostingManager(TaskManager):
         availability = ds.get_availability()
         ihash = unhexlify(ihash_str)
 
-        if ihash in self.torrents.keys():
+        if ihash in self.torrents.keys() and availability != 0.0:
             self.torrents[ihash]['availability'] = availability
             self.torrents[ihash]['livepeers'] = peers
             for peer in self.torrents[ihash]['livepeers']:
