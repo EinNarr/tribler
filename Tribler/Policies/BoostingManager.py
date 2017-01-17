@@ -101,6 +101,7 @@ class BoostingManager(TaskManager):
         BoostingManager.__single = self
         self.boosting_sources = {}
         self.torrents = {}
+        self.obv_download = {}
 
         self.session = session
 
@@ -179,6 +180,9 @@ class BoostingManager(TaskManager):
 
         self.register_task("Sessionstats_log", LoopingCall(self.log_session_statistics),
                            self.settings.initial_logging_interval, interval=5)
+
+        # self.register_task("Priority_assign", LoopingCall(self._check_priority_assign),
+        #                    delay=600, interval=1200)
 
 
     def shutdown(self):
@@ -411,7 +415,9 @@ class BoostingManager(TaskManager):
                     self.finish_pre_dl[infohash] = time.time()
 
                     # stop uploading
-                    thandle.set_max_uploads(0)
+                    thandle.set_max_uploads(1)
+                    thandle.set_upload_limit(1)
+                    thandle.set_download_limit(1)
 
                     tfile = thandle.torrent_file()
 
@@ -927,51 +933,147 @@ class BoostingManager(TaskManager):
                 tor['time']['all_download'] = status.all_time_download
                 tor['time']['all_upload'] = status.all_time_upload
 
-            self._logger.debug("Rate %s : %.1f kB/s dwn: %.1f kB/s up", status.info_hash, status.download_rate/1000,
-                               status.upload_rate/1000)
+            if status.download_rate != 0 or status.upload_rate != 0:
+                self._logger.debug("Rate %s : %.1f kB/s dwn: %.1f kB/s up", status.info_hash, status.download_rate/1000,
+                                   status.upload_rate/1000)
 
+    def _check_priority_assign(self):
+        # check main download periodically or by event
 
-        # check main download periodically
-        num_dl, total_prio_tor = self._check_main_download(self.settings.multiplier_credit_mining)
+        main_dlimpls = [dl_impl for dl_impl in self.session.lm.get_downloads() if dl_impl and dl_impl.handle and
+                        dl_impl.tdef.get_infohash() not in self.torrents]
 
-        def _assign_priority(cm_priority):
-            _lt_torrents = self.session.lm.ltmgr.get_session().get_torrents()
+        def end_obsv(deferred_finish):
+            self.cancel_pending_task("maindl_observe")
+            lc_dlobv.callback(None)
 
-            for _lt_torrent in _lt_torrents:
-                _status = _lt_torrent.status()
-                # change priority (reduce load on main downloading)
-                if cm_priority and int(cm_priority) != _status.priority:
-                    _lt_torrent.set_priority(1)
-                    # self._logger.info("Change priority %s from %d to %d", _status.info_hash,
-                    #                   _status.get_priority(), cm_priority)
+            ss = self.session.lm.ltmgr.get_session().get_settings()
+            maxbwul = ss['upload_rate_limit']
+            maxbwdl = ss['download_rate_limit']
 
-        # 1 is the lowest priority we'd want to assign
-        new_prio = (total_prio_tor/float(num_dl) if num_dl else self.DEFAULT_PRIORITY_TORRENT) or 1
-        _assign_priority(new_prio)
+            #dl, ul
+            max_avg = [0.0, 0.0]
+            sumdl_avg, sumul_avg = 0,0
 
-    def _check_main_download(self, idx_multiplier):
+            for ihash, tdict in self.obv_download.iteritems():
+                max_avg[0] = max(max_avg[0], tdict['avgdl'])
+                max_avg[1] = max(max_avg[1], tdict['avgul'])
+                # max_max[0] = max(max_max[0], tdict['maxdl'])
+                # max_max[1] = max(max_max[1], tdict['maxul'])
 
-        total_cm_prio = sum([tr['download'].handle.status().priority or 0
-                             for tr in self.torrents.values()
-                             if tr and tr.get('download', False) and tr['download'].handle])
+                sumdl_avg += tdict['avgdl']
+                sumul_avg += tdict['avgul']
 
-        total_main_prio = sum([dl_impl.handle.status().priority or 0
-                               for dl_impl in self.session.lm.get_downloads()
-                               if dl_impl and dl_impl.handle and
-                               dl_impl.tdef.get_infohash() not in self.torrents])
+            self._logger.debug("Limit : (%d, %d), Average %s | %s %s", maxbwdl, maxbwul, max_avg, sumdl_avg, sumul_avg)
 
-        ret_cm_prio = total_cm_prio
+            cmdl_limit, cmul_limit = 1, 1
 
-        # self._logger.debug("Priority(Main/Total Current CM/Total New CM) : (%d/%d/%d)", total_main_prio, total_cm_prio,
-        #                    ret_cm_prio)
+            if 0.8 * maxbwdl < sumdl_avg:
+                # if average speed is constantly 80% or more of known maximum speed
+                # keep 'pausing' mining swarms
+                cmdl_limit = 1
+            else: # find the difference
+                cmdl_limit = 0.8 * (maxbwdl - sumdl_avg)
 
-        # if main downloading not that much, we can continue as it is
-        # else, reduce priority
-        if total_main_prio >= total_cm_prio:
-            ret_cm_prio = total_cm_prio - self.MULTIPLIER_DL[idx_multiplier]*\
-                                          (total_main_prio-total_cm_prio)
+            if 0.8 * maxbwul < sumul_avg:
+                cmul_limit = 1
+            else:
+                cmul_limit = 0.8 * (maxbwul - sumul_avg)
 
-        return len([tr for tr in self.torrents.values() if tr and tr.get('download', False)]), ret_cm_prio
+            cmdl_limit = cmdl_limit if cmdl_limit > 1000 * self.settings.max_torrents_active else 1000 * self.settings.max_torrents_active
+            cmul_limit = cmul_limit if cmul_limit > 1000 * self.settings.max_torrents_active else 1000 * self.settings.max_torrents_active
+
+            self._logger.debug("Set mining speed as : %s/%s", int(cmdl_limit/self.settings.max_torrents_active),
+                               int(cmul_limit/self.settings.max_torrents_active))
+
+            for ihash, torrent in self.torrents.iteritems():
+                if 'download' in torrent:
+                    dl = torrent['download']
+                    if dl.handle:
+                        dl.handle.set_upload_limit(int(cmul_limit/self.settings.max_torrents_active))
+                        dl.handle.set_download_limit(int(cmdl_limit/self.settings.max_torrents_active))
+                        dl.handle.set_priority(1)
+
+        if main_dlimpls:
+            lc_dlobv = defer.Deferred()
+            self.obv_download = {}
+            if self.is_pending_task_active("maindl_observe"):
+                reactor.callLater(50, self._check_main_download)
+                return
+
+            self.register_task("maindl_observe", LoopingCall(self._check_main_download), delay=0, interval=10)
+            self.register_task('end_observe', reactor.callLater(300, end_obsv, lc_dlobv))
+
+        else:
+            ss = self.session.lm.ltmgr.get_session().get_settings()
+            maxbwul = ss['upload_rate_limit']
+            maxbwdl = ss['download_rate_limit']
+
+            for ihash, torrent in self.torrents.iteritems():
+                if 'download' in torrent:
+                    dl = torrent['download']
+                    if dl.handle:
+                        dl.handle.set_upload_limit(maxbwul)
+                        dl.handle.set_download_limit(maxbwdl)
+
+            self._logger.error("Set MAX mining speed")
+        # num_dl, total_prio_tor = self._check_main_download(self.settings.multiplier_credit_mining)
+
+        # def _assign_priority(cm_priority):
+        #     cm_priority = 1
+        #     _lt_torrents = self.session.lm.ltmgr.get_session().get_torrents()
+        #
+        #     for _lt_torrent in _lt_torrents:
+        #         _status = _lt_torrent.status()
+        #         # change priority (reduce load on main downloading)
+        #         if cm_priority and int(cm_priority) != _status.priority:
+        #             if unhexlify(str(_status.info_hash)) in self.torrents.keys():
+        #                 _lt_torrent.set_priority(cm_priority)
+        #                 # self._logger.info("Change priority %s from %d to %d", _status.info_hash,
+        #                 #                    _status.get_priority(), cm_priority)
+        #
+        # # 1 is the lowest priority we'd want to assign
+        # new_prio = (total_prio_tor/float(num_dl) if num_dl else self.DEFAULT_PRIORITY_TORRENT) or 1
+        # _assign_priority(new_prio)
+
+    def _check_main_download(self):
+
+        main_dlimpls = [dl_impl for dl_impl in self.session.lm.get_downloads() if dl_impl and dl_impl.handle and
+                        dl_impl.tdef.get_infohash() not in self.torrents]
+
+        # 'stopping' miners
+        for ihash, torrent in self.torrents.iteritems():
+            if 'download' in torrent:
+                dl = torrent['download']
+                if dl.handle:
+                    dl.handle.set_upload_limit(1000)
+                    dl.handle.set_download_limit(1000)
+                    dl.handle.set_priority(1)
+
+        for dl in main_dlimpls:
+            ihash = unhexlify(dl.tdef.get_infohash().encode('hex'))
+            if ihash not in self.obv_download.keys():
+                self.obv_download[ihash] = {
+                    'maxul': 0, 'maxdl': 0, 'avgul': 0.0, 'avgdl': 0.0, 'nobserved': 0
+                }
+
+            st = dl.handle.status()
+            dlrate, ulrate = st.download_rate, st.upload_rate
+            if dlrate > self.obv_download[ihash]['maxdl']:
+                self.obv_download[ihash]['maxdl'] = dlrate
+            if ulrate > self.obv_download[ihash]['maxul']:
+                self.obv_download[ihash]['maxul'] = ulrate
+
+            self.obv_download[ihash]['avgdl'] = (self.obv_download[ihash]['avgdl'] * self.obv_download[ihash]['nobserved']
+                                                 + dlrate)/float(self.obv_download[ihash]['nobserved'] + 1)
+
+            self.obv_download[ihash]['avgul'] = (self.obv_download[ihash]['avgul'] * self.obv_download[ihash]['nobserved']
+                                                 + ulrate)/float(self.obv_download[ihash]['nobserved'] + 1)
+
+            self.obv_download[ihash]['nobserved'] += 1
+
+            self._logger.error("Observe %s %d : %s", hexlify(ihash), self.obv_download[ihash]['nobserved'],
+                               self.obv_download[ihash])
 
     def update_torrent_stats(self, torrent_infohash_str, seeding_stats):
         """
