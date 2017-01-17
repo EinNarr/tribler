@@ -613,12 +613,12 @@ class BoostingManager(TaskManager):
             num_seed, num_leech = utilities.translate_peers_into_health(self.torrents[infohash]['peers'].values())
 
             # calculate number of seeder and leecher by looking at the peers
-            if self.torrents[infohash]['num_seeders'] == 0:
-                self.torrents[infohash]['num_seeders'] = num_seed
-                force_scrape = True
-            if self.torrents[infohash]['num_leechers'] == 0:
-                self.torrents[infohash]['num_leechers'] = num_leech
-                force_scrape = True
+            # if self.torrents[infohash]['num_seeders'] == 0:
+            self.torrents[infohash]['num_seeders'] = num_seed
+            force_scrape = True
+            # if self.torrents[infohash]['num_leechers'] == 0:
+            self.torrents[infohash]['num_leechers'] = num_leech
+            force_scrape = True
 
             if force_scrape:
                 self._logger.debug("Seeder/leecher data %s translated from peers : seeder %s, leecher %s",
@@ -644,16 +644,17 @@ class BoostingManager(TaskManager):
                  x['ip'].startswith("127.0.0")]
 
         ds.get_peerlist = lambda: peers
-
-        availability = ds.get_availability()
         ihash = unhexlify(ihash_str)
 
-        if ihash in self.torrents.keys() and availability != 0.0:
-            self.torrents[ihash]['availability'] = availability
-            self.torrents[ihash]['livepeers'] = peers
-            for peer in self.torrents[ihash]['livepeers']:
-                self.__insert_peer(ihash, peer['ip'], peer['port'], peer)
+        if ihash in self.torrents.keys():
+            ds.get_peerlist = lambda: self.torrents[ihash]['peers'].values()
+            availability = ds.get_availability()
 
+            if availability != 0.0:
+                self.torrents[ihash]['availability'] = availability
+                self.torrents[ihash]['livepeers'] = self.torrents[ihash]['peers'].values()
+                for peer in peers:
+                    self.__insert_peer(ihash, peer['ip'], peer['port'], peer)
 
         return 1.0, True
 
@@ -696,6 +697,7 @@ class BoostingManager(TaskManager):
             pstate.set('state', 'engineresumedata', pstate_raw)
 
             # as we read initial resume data, delete it afterwards
+            self._logger.error("Remove %s", os.path.join(self.session.get_downloads_pstate_dir(), torrent['predownload']))
             os.remove(os.path.join(self.session.get_downloads_pstate_dir(), torrent['predownload']))
 
         self._logger.info("Starting %s preload %s",
@@ -713,6 +715,7 @@ class BoostingManager(TaskManager):
 
         # if it's paused
         if torrent['download'].handle:
+            torrent['download'].handle.set_max_uploads(-1)
             torrent['download'].handle.resume()
 
     def stop_download(self, infohash, remove_torrent=False, reason="N/A"):
@@ -748,8 +751,11 @@ class BoostingManager(TaskManager):
                     _download = None
 
                 if _download:
-                    self.session.remove_download(_download, hidden=True)
+                    self.session.remove_download(_download, removestate=False, hidden=True)
                     torrent['time']['last_stopped'] = time.time()
+
+                    self.session.lm.ltmgr.remove_torrent(_download, True)
+                    _download.handle = None
                 if remove_torrent_par:
                     self.torrents.pop(infohash_bin)
 

@@ -344,6 +344,10 @@ class DownloadState(object):
                 if merged_bitfields is None:
                     merged_bitfields = [0] * len(have)
 
+                # hacks for different have-size
+                if len(merged_bitfields) < len(have):
+                    merged_bitfields += [0] * (len(have) - len(merged_bitfields))
+
                 for i in range(len(have)):
                     if have[i]:
                         merged_bitfields[i] += 1
