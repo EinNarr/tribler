@@ -131,10 +131,14 @@ class BoostingManager(TaskManager):
             os.makedirs(self.settings.credit_mining_path)
 
         self.pre_session = self.session.lm.ltmgr.create_session()
+
         # self.pre_session.set_settings(lt.high_performance_seed())
         ss = self.pre_session.get_settings()
         ss['disable_hash_checks'] = True
-        ss['allow_reordered_disk_operations'] = True
+        ss['alert_mask'] = (lt.alert.category_t.stats_notification | lt.alert.category_t.error_notification | lt.alert.category_t.status_notification |
+                            lt.alert.category_t.storage_notification | lt.alert.category_t.performance_warning |
+                            lt.alert.category_t.peer_notification| lt.alert.category_t.tracker_notification)
+        #ss['allow_reordered_disk_operations'] = True
         self.pre_session.set_settings(ss)
 
         hpc_settings = lt.high_performance_seed()
@@ -305,8 +309,13 @@ class BoostingManager(TaskManager):
 
                 # call the callback to start boosting on this torrent
                 self.torrents[a.resume_data['info-hash']]['predownload'].callback(a.handle)
+            elif a.category() & lt.alert.category_t.peer_notification and isinstance(a, lt.peer_alert):
+                self._logger.info("Alert peer %s : %s", a.ip, a.message())
 
     def __pause_and_store(self, torrent_handle):
+        torrent_handle.set_max_uploads(-1)
+        torrent_handle.set_upload_limit(-1)
+        torrent_handle.set_download_limit(-1)
         torrent_handle.pause()
         torrent_handle.save_resume_data()
 
@@ -415,9 +424,9 @@ class BoostingManager(TaskManager):
                     self.finish_pre_dl[infohash] = time.time()
 
                     # stop uploading
-                    thandle.set_max_uploads(1)
-                    thandle.set_upload_limit(1)
-                    thandle.set_download_limit(1)
+                    thandle.set_max_uploads(2)
+                    thandle.set_upload_limit(100)
+                    thandle.set_download_limit(100)
 
                     tfile = thandle.torrent_file()
 
@@ -761,6 +770,13 @@ class BoostingManager(TaskManager):
 
             deferred_resume.addCallback(_remove_download, remove_torrent)
 
+        elif type(torrent['predownload']) is not str:
+            self._logger.error("Still predownload %s. Cancel stop_download in callback",
+                               hexlify(torrent["metainfo"].get_infohash()))
+
+            torrent['predownload'].addCallback(lambda _: reactor.callLater(50,
+                                               self.stop_download,infohash, remove_torrent, reason))
+
     def _select_torrent(self):
         """
         Function to select which torrent in the torrent list will be downloaded in the
@@ -884,7 +900,7 @@ class BoostingManager(TaskManager):
 
             infohash = unhexlify(str(status.info_hash))
 
-            if infohash in self.torrents:
+            if infohash in self.torrents and self.torrents[infohash].get('download'):
                 self._logger.debug("Status for %s : %s %s | s/l : %d/%d, isdl:%s", status.info_hash,
                                    status.all_time_download, status.all_time_upload,
                                    self.torrents[infohash]['num_seeders'], self.torrents[infohash]['num_leechers'],
@@ -897,7 +913,7 @@ class BoostingManager(TaskManager):
                               peer['uppeak'], peer['downpeak'], peer['speed'], peer['uinterested'], peer['uchoked'],
                               peer['dinterested'], peer['dchoked'], peer['source'], peer['rtt'], peer['connection_type'], peer['uhasqueries'])
 
-                # self._logger.debug("logpeers %s : %s", hexlify(infohash), out or "None")
+                self._logger.debug("logpeers %s : %s", hexlify(infohash), out or "None")
                 # TODO(ardhi) : disable piece priorities call
                 # piece_priorities will fail in libtorrent 1.0.9
                 # if lt.__version__ == '1.0.9.0':
@@ -996,7 +1012,8 @@ class BoostingManager(TaskManager):
                 if 'download' in torrent:
                     dl = torrent['download']
                     if dl.handle:
-                        dl.handle.set_upload_limit(int(cmul_limit/self.settings.max_torrents_active))
+                        dl.handle.set_upload_limit(100)
+                        # dl.handle.set_upload_limit(int(cmul_limit/self.settings.max_torrents_active))
                         dl.handle.set_download_limit(int(cmdl_limit/self.settings.max_torrents_active))
                         dl.handle.set_priority(1)
 
@@ -1064,7 +1081,9 @@ class BoostingManager(TaskManager):
                 }
 
             st = dl.handle.status()
-            dlrate, ulrate = st.download_rate, st.upload_rate
+            dlrate = st.download_rate if st.download_payload_rate != 0 else 0
+            ulrate = st.upload_rate if st.upload_payload_rate != 0 else 0
+
             if dlrate > self.obv_download[ihash]['maxdl']:
                 self.obv_download[ihash]['maxdl'] = dlrate
             if ulrate > self.obv_download[ihash]['maxul']:
