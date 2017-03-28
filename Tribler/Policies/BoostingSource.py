@@ -303,11 +303,17 @@ class ChannelSource(BoostingSource):
             if torrent.files:
                 if len(self.torrents) >= self.max_torrents:
                     self._logger.debug("Max torrents in source reached. Not adding %s", torrent.infohash)
-                    del self.unavail_torrent[torrent.infohash]
+                    # del self.unavail_torrent[torrent.infohash]
+                    reactor.callLater(120, showtorrent, torrent)
                     return
 
                 if torrent.infohash in self.blacklist_torrent:
                     self._logger.debug("Torrents blacklisted. Not adding %s", hexlify(torrent.infohash))
+                    del self.unavail_torrent[torrent.infohash]
+                    return
+
+                if torrent.infohash in self.torrents:
+                    self._logger.debug("Torrents was here. Not adding %s", hexlify(torrent.infohash))
                     del self.unavail_torrent[torrent.infohash]
                     return
 
