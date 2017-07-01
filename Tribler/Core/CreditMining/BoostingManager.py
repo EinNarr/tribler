@@ -18,8 +18,6 @@ from twisted.internet.task import LoopingCall
 
 from Tribler.Core.CreditMining.BoostingPolicy import SeederRatioPolicy
 from Tribler.Core.CreditMining.BoostingSource import ChannelSource
-from Tribler.Core.CreditMining.BoostingSource import DirectorySource
-from Tribler.Core.CreditMining.BoostingSource import RSSFeedSource
 from Tribler.Core.CreditMining.credit_mining_util import source_to_string, string_to_source, compare_torrents, \
     validate_source_string
 from Tribler.Core.CreditMining.defs import SAVED_ATTR, CREDIT_MINING_FOLDER_DOWNLOAD, CONFIG_KEY_ARCHIVELIST, \
@@ -182,17 +180,7 @@ class BoostingManager(TaskManager):
         if source not in self.boosting_sources:
             args = (self.session, source, self.settings, self.on_torrent_insert)
 
-            try:
-                isdir = os.path.isdir(source)
-            except TypeError:
-                # this handle binary data that has null bytes '\00'
-                isdir = False
-
-            if isdir:
-                self.boosting_sources[source] = DirectorySource(*args)
-            elif source.startswith('http://') or source.startswith('https://'):
-                self.boosting_sources[source] = RSSFeedSource(*args)
-            elif len(source) == 20:
+            if len(source) == 20:
                 self.boosting_sources[source] = ChannelSource(*args)
             else:
                 self._logger.error("Cannot add unknown source %s", source)
