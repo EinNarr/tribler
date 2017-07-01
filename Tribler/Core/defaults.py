@@ -170,8 +170,8 @@ sessdefaults['credit_mining']['share_mode_target'] = 3
 sessdefaults['credit_mining']['tracker_interval'] = 200
 sessdefaults['credit_mining']['logging_interval'] = 60
 # By default we want to automatically boost legal-predetermined channel.
-sessdefaults['credit_mining']['boosting_sources'] = ["http://bt.etree.org/rss/bt_etree_org.rdf"]
-sessdefaults['credit_mining']['boosting_enabled'] = ["http://bt.etree.org/rss/bt_etree_org.rdf"]
+sessdefaults['credit_mining']['boosting_sources'] = []
+sessdefaults['credit_mining']['boosting_enabled'] = []
 sessdefaults['credit_mining']['boosting_disabled'] = []
 sessdefaults['credit_mining']['archive_sources'] = []
 sessdefaults['credit_mining']['policy'] = "seederratio"
