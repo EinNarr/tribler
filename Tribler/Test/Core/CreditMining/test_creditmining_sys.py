@@ -5,25 +5,20 @@ Author(s): Ardhi Putra
 """
 import binascii
 import os
-import shutil
-from unittest import skip
 from twisted.internet import defer
 from twisted.internet.defer import inlineCallbacks
 from twisted.internet.task import LoopingCall
-from twisted.web.server import Site
-from twisted.web.static import File
 
 from Tribler.Core.CreditMining.BoostingManager import BoostingManager, BoostingSettings
 from Tribler.Core.CreditMining.BoostingPolicy import SeederRatioPolicy
 from Tribler.Core.DownloadConfig import DefaultDownloadStartupConfig
 from Tribler.Core.TorrentDef import TorrentDef
 from Tribler.Core.simpledefs import NTFY_TORRENTS, NTFY_UPDATE, NTFY_CHANNELCAST
-from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent, ResourceFailClass
+from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent
 from Tribler.Test.Core.base_test_channel import BaseTestChannel
 from Tribler.Test.common import TORRENT_UBUNTU_FILE, TORRENT_UBUNTU_FILE_INFOHASH, TESTS_DATA_DIR
 from Tribler.Test.test_as_server import TestAsServer
 from Tribler.Test.twisted_thread import deferred, reactor
-from Tribler.Test.util.util import prepare_xml_rss
 from Tribler.community.channel.community import ChannelCommunity
 from Tribler.dispersy.dispersy import Dispersy
 from Tribler.dispersy.endpoint import ManualEnpoint
@@ -144,138 +139,6 @@ class TestBoostingManagerSys(TestAsServer):
         return defer_param
 
 
-@skip("Credit mining tests are not reliable")
-class TestBoostingManagerSysRSS(TestBoostingManagerSys):
-    """
-    testing class for RSS (dummy) source
-    """
-
-    @blocking_call_on_reactor_thread
-    @inlineCallbacks
-    def setUp(self, autoload_discovery=True):
-        yield super(TestBoostingManagerSysRSS, self).setUp()
-
-        files_path, self.file_server_port = prepare_xml_rss(self.session_base_dir, 'test_rss_cm.xml')
-
-        shutil.copyfile(TORRENT_UBUNTU_FILE, os.path.join(files_path, 'ubuntu.torrent'))
-        self.setUpFileServer(self.file_server_port, self.session_base_dir)
-
-        self.rss_error_deferred = defer.Deferred()
-        # now the rss should be at :
-        # http://localhost:port/test_rss_cm.xml
-        # which resides in sessiondir/http_torrent_files
-
-    def set_boosting_settings(self):
-        super(TestBoostingManagerSysRSS, self).set_boosting_settings()
-        self.bsettings.auto_start_source = False
-
-    def setUpFileServer(self, port, path):
-        resource = File(path)
-        resource.putChild("err503", ResourceFailClass())
-        factory = Site(resource)
-        self._logger.debug("Listen to port %s, factory %s", port, factory)
-        self.file_server = reactor.listenTCP(port, factory)
-
-    @deferred(timeout=30)
-    def test_rss(self):
-        """
-        test rss source
-        """
-        url = 'http://localhost:%s/test_rss_cm.xml' % self.file_server_port
-        self.boosting_manager.add_source(url)
-
-        rss_obj = self.boosting_manager.get_source_object(url)
-        rss_obj.start()
-
-        d = self.check_source(url)
-        d.addCallback(self.check_torrents, target=1)
-        return d
-
-    def _on_error_rss(self, dummy_1, dummy_2):
-        """
-        dummy errback when RSS source produces an error
-        """
-        self.rss_error_deferred.callback(True)
-
-    @deferred(timeout=8)
-    def test_rss_unexist(self):
-        """
-        Testing an unexisting RSS feed
-        """
-        url = 'http://localhost:%s/nothingness' % self.file_server_port
-        self.boosting_manager.add_source(url)
-
-        rss_obj = self.boosting_manager.get_source_object(url)
-        rss_obj._on_error_rss = self._on_error_rss
-        rss_obj.start()
-
-        return self.rss_error_deferred
-
-    @deferred(timeout=8)
-    def test_rss_unavailable(self):
-        """
-        Testing an unavailable RSS feed
-        """
-        url = 'http://localhost:%s/err503' % self.file_server_port
-        self.boosting_manager.add_source(url)
-
-        rss_obj = self.boosting_manager.get_source_object(url)
-        rss_obj._on_error_rss = self._on_error_rss
-        rss_obj.start()
-
-        return self.rss_error_deferred
-
-
-@skip("Credit mining tests are not reliable")
-class TestBoostingManagerSysDir(TestBoostingManagerSys):
-    """
-    testing class for directory source
-    """
-
-    @deferred(timeout=10)
-    def test_dir(self):
-        """
-        test directory filled with .torrents
-        """
-        self.boosting_manager.add_source(TESTS_DATA_DIR)
-        len_source = len(self.boosting_manager.boosting_sources)
-
-        # deliberately try to add the same source
-        self.boosting_manager.add_source(TESTS_DATA_DIR)
-        self.assertEqual(len(self.boosting_manager.boosting_sources), len_source, "identical source added")
-
-        dir_obj = self.boosting_manager.get_source_object(TESTS_DATA_DIR)
-        self.assertTrue(dir_obj.ready, "Not Ready")
-
-        d = self.check_torrents(TESTS_DATA_DIR, target=2)
-        d.addCallback(lambda _: True)
-        return d
-
-    @deferred(timeout=10)
-    def test_dir_archive_example(self):
-        """
-        test archive mode. Use diretory because easier to fetch torrent
-        """
-        self.boosting_manager.add_source(TESTS_DATA_DIR)
-        self.boosting_manager.set_archive(TESTS_DATA_DIR, True)
-
-        dir_obj = self.boosting_manager.get_source_object(TESTS_DATA_DIR)
-        self.assertTrue(dir_obj.ready, "Not Ready")
-
-        def check_archive(_):
-            """
-            function to check whether two of the torrents is in archive mode (with preload)
-            """
-            for infohash in list(self.boosting_manager.torrents):
-                torrent = self.boosting_manager.torrents[infohash]
-                self.assertIsNotNone(torrent.get('preload'))
-
-        d = self.check_torrents(TESTS_DATA_DIR, target=2)
-        d.addCallback(check_archive)
-        return d
-
-
-@skip("Credit mining tests are not reliable")
 class TestBoostingManagerSysChannel(TestBoostingManagerSys, BaseTestChannel):
     """
     testing class for channel source
