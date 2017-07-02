@@ -4,12 +4,14 @@ Supported boosting sources.
 Author(s): Egbert Bouman, Mihai Capota, Elric Milon, Ardhi Putra
 """
 import logging
+import time
 from binascii import hexlify, unhexlify
 
 from twisted.internet import defer
 from twisted.internet import reactor
 from twisted.internet.task import LoopingCall
 
+from Tribler.Core.CreditMining.credit_mining_util import source_to_string
 from Tribler.Core.TorrentDef import TorrentDef
 from Tribler.Core.simpledefs import NTFY_INSERT, NTFY_TORRENTS, NTFY_UPDATE
 from Tribler.community.allchannel.community import AllChannelCommunity

@@ -9,12 +9,12 @@ import random
 import re
 from unittest import skip
 
-from Tribler.Core.CreditMining.BoostingPolicy import CreationDatePolicy, SeederRatioPolicy, RandomPolicy
-from Tribler.Core.CreditMining.BoostingSource import ent2chr
-from Tribler.Core.CreditMining.credit_mining_util import levenshtein_dist, source_to_string
 from twisted.internet.defer import inlineCallbacks
 
 import Tribler.Core.CreditMining.BoostingManager as bm
+from Tribler.Core.CreditMining.BoostingPolicy import CreationDatePolicy, SeederRatioPolicy, RandomPolicy
+from Tribler.Core.CreditMining.credit_mining_util import ent2chr
+from Tribler.Core.CreditMining.credit_mining_util import levenshtein_dist, source_to_string
 from Tribler.Core.DownloadConfig import DefaultDownloadStartupConfig
 from Tribler.Core.Libtorrent.LibtorrentDownloadImpl import LibtorrentDownloadImpl
 from Tribler.Core.SessionConfig import SessionConfigInterface
