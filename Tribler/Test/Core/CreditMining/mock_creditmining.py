@@ -88,6 +88,15 @@ class MockLtPeer(object):
         self.upload_only = 1
         self.read_state = False
         self.write_state = False
+        self.up_speed = 0
+        self.down_speed = 0
+        self.upload_rate_peak = 0
+        self.download_rate_peak = 0
+        self.progress_ppm = 0
+        self.num_pieces = 1
+        self.source = 1
+        self.rtt = 0
+        self.estimated_reciprocation_rate = 1
 
     def setvalue(self, upload_only, uinterested, completed):
         self.upload_only = upload_only
