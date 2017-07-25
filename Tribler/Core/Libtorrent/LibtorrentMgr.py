@@ -368,7 +368,7 @@ class LibtorrentMgr(TaskManager):
             return
 
         with self.metainfo_lock:
-            self._logger.debug('get_metainfo %s %s %s', infohash_or_magnet, callback, timeout)
+            self._logger.debug('get_metainfo %s %s %s', hexlify(infohash_or_magnet), callback, timeout)
 
             cache_result = self._get_cached_metainfo(infohash)
             if cache_result:
