@@ -102,6 +102,7 @@ class MockLtPeer(object):
         self.upload_only = upload_only
         self.remote_interested = uinterested
         self.progress = 1 if completed else 0
+        self.progress_ppm = 1000000 if completed else 0
 
 
 class MockPeerId(object):
@@ -141,6 +142,7 @@ class MockLtSession(object):
         self.lm.download_exists = MockObject()
         self.lm.channelcast_db = MockObject()
         self.lm.torrent_store = MockObject()
+        self.lm.load_download_pstate_noexc = lambda _:MockObject()
 
         self.config = MockObject()
         self.config.get_credit_mining_policy = lambda as_class=False: SeederRatioPolicy if as_class else "seederratio"

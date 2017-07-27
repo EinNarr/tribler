@@ -182,6 +182,7 @@ class TestBoostingManagerUtilities(TriblerCoreTest):
         self.bsettings.initial_logging_interval = 9000
         self.session.open_dbhandler = lambda _: None
         self.session.lm.ltmgr = MockLtSession()
+        self.session.lm.ltmgr.create_session = lambda: MockLtSession()
 
         # it will automatically load the default configuration
         boost_man = bm.BoostingManager(self.session, self.bsettings)
@@ -203,6 +204,7 @@ class TestBoostingManagerUtilities(TriblerCoreTest):
             peerlist_dict.append(LibtorrentDownloadImpl.create_peerlist_data(peer))
 
         num_seed, num_leech = utilities.translate_peers_into_health(peerlist_dict)
+
         self.assertEqual(num_seed, 4, "Seeder number don't match")
         self.assertEqual(num_leech, 3, "Leecher number don't match")
 
@@ -268,6 +270,7 @@ class TestBoostingManagerUtilities(TriblerCoreTest):
         }
 
         self.session.lm.ltmgr = MockLtSession()
+        self.session.lm.ltmgr.create_session = lambda: MockLtSession()
 
         boost_man = bm.BoostingManager(self.session, self.bsettings)
         boost_man.torrents = torrents
@@ -311,6 +314,7 @@ class TestBoostingManagerUtilities(TriblerCoreTest):
             }
         }
         self.session.lm.ltmgr = MockLtSession()
+        self.session.lm.ltmgr.create_session = lambda: MockLtSession()
 
         boost_man = bm.BoostingManager(self.session, self.bsettings)
         boost_man.torrents = torrents
@@ -340,6 +344,7 @@ class TestBoostingManagerError(TriblerCoreTest):
         self.session.open_dbhandler = lambda _: True
         self.session.get_libtorrent = lambda: True
         self.session.lm.ltmgr = MockLtSession()
+        self.session.lm.ltmgr.create_session = lambda: MockLtSession()
 
         self.boost_setting = bm.BoostingSettings(SeederRatioPolicy(self.session))
         self.boost_setting.load_config = False
@@ -360,7 +365,8 @@ class TestBoostingManagerError(TriblerCoreTest):
         torrent = {
             'preload': False,
             'metainfo': MockMeta("1234"),
-            'infohash': '12345'
+            'infohash': '12345',
+            'name': 'fake_torrent'
         }
 
         self.boosting_manager.on_torrent_insert(binascii.unhexlify("abcd" * 10), '12345', torrent)
@@ -386,7 +392,8 @@ class TestBoostingManagerError(TriblerCoreTest):
             'preload': False,
             'metainfo': MockMeta("1234")
         }
+        self.session.lm.boosting_manager.torrents[torrent['metainfo'].get_infohash()] = torrent
         self.session.lm.download_exists = lambda _: True
-        self.boosting_manager.start_download(torrent)
+        self.boosting_manager.start_download(torrent['metainfo'].get_infohash())
 
         self.assertNotIn('download', torrent, "%s downloading despite error" % torrent)
