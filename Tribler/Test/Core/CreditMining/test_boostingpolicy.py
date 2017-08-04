@@ -26,19 +26,19 @@ from Tribler.Test.Core.base_test import TriblerCoreTest
 from Tribler.dispersy.util import blocking_call_on_reactor_thread
 
 
-class TestBoostingManagerPolicies(TriblerCoreTest):
+class TestBoostingPolicy(TriblerCoreTest):
     """
     The class to test core function of credit mining policies
     """
 
     def __init__(self, *argv, **kwargs):
-        super(TestBoostingManagerPolicies, self).__init__(*argv, **kwargs)
+        super(TestBoostingPolicy, self).__init__(*argv, **kwargs)
         self.session = MockLtSession()
 
     @blocking_call_on_reactor_thread
     @inlineCallbacks
     def setUp(self, autoload_discovery=True):
-        yield super(TestBoostingManagerPolicies, self).setUp()
+        yield super(TestBoostingPolicy, self).setUp()
         self.torrents = dict()
         for i in xrange(1, 11):
             mock_metainfo = MockMeta(i)
@@ -50,16 +50,19 @@ class TestBoostingManagerPolicies(TriblerCoreTest):
         """
         testing random policy
         """
-        rdrwh = random.WichmannHill(0)
+        rdrwh = random.WichmannHill(1)
         policy = RandomPolicy(self.session)
-        policy.key = lambda _: rdrwh.random()
+        self.assertFalse(policy.key(self.torrents[1]) == policy.key(self.torrents[1]),
+                         "2 key() calls in random policy return the same result.")
 
+        policy.key = lambda _: rdrwh.random()
         torrents_start, torrents_stop = policy.apply(self.torrents, 6)
         ids_start = [torrent["metainfo"].get_infohash() for torrent in
                      torrents_start]
-        self.assertEqual(1, len(ids_start), "Start failed %s vs %s" % (ids_start, torrents_start))
+        self.assertEqual([8, 10, 6], ids_start, "Start failed %s vs %s" % (ids_start, torrents_start))
         ids_stop = [torrent["metainfo"].get_infohash() for torrent in torrents_stop]
-        self.assertEqual(0, len(ids_stop), "Stop failed %s vs %s" % (ids_stop, torrents_stop))
+        self.assertEqual([9, 7], ids_stop, "Stop failed %s vs %s" % (ids_stop, torrents_stop))
+        
 
     def test_seederratio_policy(self):
         """
@@ -93,7 +96,7 @@ class TestBoostingManagerPolicies(TriblerCoreTest):
         ids_stop = [torrent["metainfo"].get_infohash() for torrent in torrents_stop]
         self.assertEqual(2, len(ids_stop), "Stop failed %s vs %s" % (ids_stop, torrents_stop))
 
-    def test_creationdate_policy(self):
+    def test_creationdatepolicy(self):
         """
         test policy based on creation date
         """
