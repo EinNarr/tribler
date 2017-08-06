@@ -188,7 +188,7 @@ class MockLtSession(object):
         """
         mocked function to get a download
         """
-        return x % 2
+        return int(x) % 2
 
 
 class ResourceFailClass(Resource):
