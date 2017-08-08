@@ -49,7 +49,8 @@ def source_to_string(source_obj):
 def string_to_source(source_str):
     # don't need to handle null byte because lazy evaluation
     return source_str.decode('hex') \
-        if len(source_str) == 40 and not (os.path.isdir(source_str) or source_str.startswith('http://')) else source_str
+        if len(source_str) == 40 and not (os.path.isdir(source_str) or source_str.startswith('http://')\
+        or source_str.startswith('https://')) else source_str
 
 
 def compare_torrents(torrent_1, torrent_2):
@@ -61,10 +62,9 @@ def compare_torrents(torrent_1, torrent_2):
     files2 = [files for files in torrent_2['metainfo'].get_files_with_length() if files[1] > 1024 * 1024]
 
     if len(files1) == len(files2):
-        for ft1 in files1:
-            for ft2 in files2:
-                if ft1[1] != ft2[1] or levenshtein_dist(ft1[0], ft2[0]) > SIMILARITY_TRESHOLD:
-                    return False
+        for (ft1, ft2) in zip(files1, files2):
+            if ft1[1] != ft2[1] or levenshtein_dist(ft1[0], ft2[0]) > SIMILARITY_TRESHOLD:
+                return False
         return True
     return False
 
