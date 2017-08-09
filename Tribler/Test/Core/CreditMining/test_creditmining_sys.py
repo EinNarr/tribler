@@ -197,7 +197,7 @@ class TestBoostingManagerSysChannel(TestBoostingManagerSys, BaseTestChannel):
 
         self.insert_torrents_into_channel(torrent_list)
 
-    @deferred(timeout=20)
+    @deferred(timeout=50)
     def test_chn_lookup(self):
         """
         testing channel source.
