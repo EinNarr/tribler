@@ -267,9 +267,6 @@ class BoostingManager(TaskManager):
         thandle = self.pre_session.add_torrent({'ti': torrentinfo, 'save_path': self.settings.credit_mining_path,
                                                 'flags': lt.add_torrent_params_flags_t.flag_paused})
 
-        # only download 4 pieces
-        thandle.prioritize_pieces([0]*len(thandle.piece_priorities()))
-        thandle.piece_priority(0, 7)
 
         def _on_finish(_thandle):
             self.pre_session.remove_torrent(_thandle, 0)
@@ -303,72 +300,19 @@ class BoostingManager(TaskManager):
                 thandle.save_resume_data()
 
             # just finished prospecting, set the flags
-            if status.progress == 1.0 and not self.finish_pre_dl[infohash]:
-                if status.num_pieces >= self.settings.piece_download:
-                    self._logger.info("%s finish pre-downloading by %s", hexlify(infohash), time.time() - started_time)
-                    self.finish_pre_dl[infohash] = time.time()
+            if status.num_pieces >= self.settings.piece_download and not self.finish_pre_dl[infohash]:
+                self._logger.info("%s finish pre-downloading by %s", hexlify(infohash), time.time() - started_time)
+                self.finish_pre_dl[infohash] = time.time()
 
-                    self.cancel_pending_task("pre_download_%s" % hexlify(infohash))
-                    thandle.pause()
-                    thandle.save_resume_data()
-                else:
-                    pieces_idx = self.download_pieces(self.settings.piece_download - 1, thandle)
-                    for p in pieces_idx:
-                        thandle.piece_priority(p, 7)
+                self.cancel_pending_task("pre_download_%s" % hexlify(infohash))
+                thandle.pause()
+                thandle.save_resume_data()
 
         self.register_task("pre_download_%s" % hexlify(infohash), LoopingCall(_check_swarm_peers, thandle, time.time()), 0,  interval=2)
         thandle.resume()
 
         return deferred_handle
 
-    def download_pieces(self, num_piece, thandle):
-        """
-        A function to download rarest pieces.
-        :return:
-        """
-        merged_bitfields = None
-
-        for p in thandle.get_peer_info():
-            peer = LibtorrentDownloadImpl.create_peerlist_data(p)
-            completed = peer.get('completed', 0)
-            have = peer.get('have', [])
-
-            if merged_bitfields is None:
-                merged_bitfields = [0] * len(have)
-
-            if completed == 1000000 or (have and all(have)):
-                for i in range(len(have)):
-                    merged_bitfields[i] += 1
-            else:
-                for i in range(len(have)):
-                    if have[i]:
-                        merged_bitfields[i] += 1
-
-        if merged_bitfields is None:
-            return []
-
-        rarest_piece = min(merged_bitfields)
-        if rarest_piece == max(merged_bitfields):
-            return []
-
-        rare_pieces = [i for i, x in enumerate(merged_bitfields) if x == rarest_piece]
-
-        for idx in rare_pieces:
-            if thandle.have_piece(idx):
-                rare_pieces.remove(idx)
-
-        if not rare_pieces:
-            return []
-
-        chosen_idx = random.choice(rare_pieces)
-        chosen_idxs = []
-        for y in xrange(0, min(num_piece, len(rare_pieces))):
-            while thandle.have_piece(chosen_idx) or chosen_idx in chosen_idxs:
-                chosen_idx = random.choice(rare_pieces)
-
-            chosen_idxs.append(chosen_idx)
-
-        return chosen_idxs
 
     def on_torrent_insert(self, source, infohash, torrent):
         """
