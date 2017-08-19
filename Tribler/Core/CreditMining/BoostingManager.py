@@ -627,7 +627,7 @@ class BoostingManager(TaskManager):
         """
         for k in SAVED_ATTR:
             try:
-                setattr(self.session, "set_cm_%s" % k, getattr(self.settings, k))
+                getattr(self.session, "set_cm_%s" % k)(getattr(self.settings, k))
             except OperationNotPossibleAtRuntimeException:
                 # some of the attribute can't be changed in runtime. See lm.sessconfig_changed_callback
                 self._logger.debug("Cannot set attribute %s. Not permitted in runtime", k)
