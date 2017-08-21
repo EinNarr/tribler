@@ -305,7 +305,6 @@ class TestBoostingManager(BaseTestChannel):
         #TODO currently there is no difference between inserting a new peer or a existing peer.
     
     def test_process_resume_alert(self):
-        
         pass
 
     def test_pre_download_torrent(self):
@@ -343,7 +342,47 @@ class TestBoostingManager(BaseTestChannel):
         pass
 
     def test_stop_download(self):
-        pass
+        '''
+        test for stopping a currently downloading torrent
+        '''
+        #create fake torrent
+        info_hash1 = '111111'
+        info_hash2 = '222222'
+        info_hash3 = '333333'
+        self.boosting_manager.torrents[info_hash1] = {'metainfo': MockMeta(info_hash1), 'download': MockLibtorrentDownloadImpl(info_hash1), 'time': {}}
+        self.boosting_manager.torrents[info_hash2] = {'metainfo': MockMeta(info_hash2), 'download': MockLibtorrentDownloadImpl(info_hash2), 'time': {}}
+        self.boosting_manager.torrents[info_hash3] = {'metainfo': MockMeta(info_hash3), 'download': MockLibtorrentDownloadImpl(info_hash3), 'time': {}}
+
+        self.boosting_manager.torrents[info_hash3]['download'].handle.is_valid = lambda: False
+        self.boosting_manager.torrents[info_hash3]['download'].handle.has_metadata = lambda: False
+
+        #create fake resume_data
+        #TODO save_resume_data and on_save_resume_data_alert not reliable
+        resume_data1 = {'info-hash': info_hash1}
+        resume_data2 = {'info-hash': info_hash2}
+        resume_data_not_exist = {'info-hash': 'notexistfakeinfohash'}
+
+        #mock logger functions
+        error_msg = []
+        def fake_logger(format_str, *arg):
+            error_msg.append((format_str % arg))
+        self.boosting_manager._logger.error = fake_logger
+
+        #start testing
+        self.boosting_manager.stop_download(info_hash1, remove_torrent=False)
+        self.assertEqual(len(self.boosting_manager.torrents), 3, 'Torrent deleted before getting resume data unexpectedly.')
+        self.boosting_manager.torrents[info_hash1]['download'].deferreds_resume[0].callback(resume_data1)
+        self.assertEqual(len(self.boosting_manager.torrents), 3, 'Torrent deleted when stop downloading unexpectedly.')
+
+        self.boosting_manager.stop_download(info_hash2, remove_torrent=True)
+        self.assertEqual(len(self.boosting_manager.torrents), 3, 'Torrent deleted before getting resume data unexpectedly.')
+        self.boosting_manager.torrents[info_hash2]['download'].deferreds_resume[0].callback(resume_data2)
+        self.assertEqual(len(self.boosting_manager.torrents), 2, 'Torrent deleted when stop downloading unexpectedly.')
+
+        self.boosting_manager.stop_download(info_hash3, remove_torrent=True)
+        self.assertEqual(len(self.boosting_manager.torrents), 2, 'Torrent deleted when stop downloading unexpectedly.')
+        self.boosting_manager.torrents[info_hash3]['download'].deferreds_resume[0].callback(resume_data_not_exist)
+        self.assertEqual(len(self.boosting_manager.torrents), 2, 'Torrent deleted while info hash is unknown.')
 
     def test_select_torrent(self):
         '''
@@ -358,7 +397,7 @@ class TestBoostingManager(BaseTestChannel):
         self.boosting_manager.torrents['fakeinfohash1']['preload'] = True
 
         self.boosting_manager.torrents['fakeinfohash2']['preload'] = True
-        self.boosting_manager.torrents['fakeinfohash2']['download'] = MockLibtorrentDownloadImpl()
+        self.boosting_manager.torrents['fakeinfohash2']['download'] = MockLibtorrentDownloadImpl('fakeinfohash2')
         self.boosting_manager.torrents['fakeinfohash2']['download'].get_status = lambda: DLSTATUS_SEEDING
 
         self.boosting_manager.torrents['fakeinfohash3']['is_duplicate'] = False

@@ -4,6 +4,7 @@ Module of Credit mining mock classes.
 Author(s): Ardhi Putra
 """
 from twisted.web.resource import Resource
+from twisted.internet.defer import Deferred
 
 from Tribler.Core.CreditMining.BoostingPolicy import SeederRatioPolicy
 from Tribler.Core.SessionConfig import SessionConfigInterface
@@ -56,8 +57,15 @@ class MockLtTorrent(object):
         """
         return True
 
+    def has_metadata(self):
+        return True
+
     def status(self):
         return self
+
+    def pause(self):
+        pass
+
 
 class MockLtPeer(object):
     """
@@ -225,8 +233,31 @@ class MockLibtorrentDownloadImpl(object):
     """
     Mock for LibtorrentDownloadImpl
     """
-    def __init__(self):
-        pass
+    def __init__(self, info_hash):
+        self.handle = MockLtTorrent()
+        self.deferreds_resume = []
+        self.info_hash = info_hash
 
     def get_status(self):
         return 0
+
+    def get_def(self):
+        return MockTorrentDef(self.info_hash)
+
+    def save_resume_data(self):
+        d = Deferred()
+        self.deferreds_resume.append(d)
+        return d
+
+    def stop_remove(self, removestate, removecontent):
+        pass
+
+class MockTorrentDef(object):
+    """
+    Mock for torrentDef
+    """
+    def __init__(self, info_hash):
+        self.info_hash = info_hash
+
+    def get_infohash(self):
+        return self.info_hash
