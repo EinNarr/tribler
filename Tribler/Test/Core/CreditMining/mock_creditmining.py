@@ -163,6 +163,8 @@ class MockLtSession(object):
 
         self.add_observer = lambda *_: None
 
+        self.handle = MockLtTorrent()
+
     def get_libtorrent_version(self):
         return '0'
 
@@ -190,8 +192,46 @@ class MockLtSession(object):
         """
         return int(x) % 2
 
+    def get_torrents(self):
+        """
+        mocked function to get torrents
+        """
+        return {}
+
 
 class ResourceFailClass(Resource):
     def render_GET(self, request):
         request.setResponseCode(503)
         return "<html><body>Error 503.</body></html>"
+
+
+class MockChannelSource(object):
+    """
+    Mock for channel source
+    """
+    def __init__(self):
+        self.enabled = True
+        self.archive = True
+
+    def kill_tasks(self):
+        pass
+
+class MockBoostingPolicy(object):
+    """
+    Mock for boosting policy
+    """
+    def __init__(self):
+        pass
+
+    def apply(self, torrents, max_active):
+        return [], []
+
+class MockLibtorrentDownloadImpl(object):
+    """
+    Mock for LibtorrentDownloadImpl
+    """
+    def __init__(self):
+        pass
+
+    def get_status(self):
+        return 0
