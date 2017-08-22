@@ -66,6 +66,9 @@ class MockLtTorrent(object):
     def pause(self):
         pass
 
+    def resume(self):
+        pass
+
 
 class MockLtPeer(object):
     """
@@ -122,21 +125,6 @@ class MockPeerId(object):
 
     def to_string(self):
         return self.peer_id
-
-
-class MockMeta(object):
-    """
-    class for mocking the torrent metainfo
-    """
-
-    def __init__(self, id_hash):
-        self.infohash = id_hash
-
-    def get_infohash(self):
-        """
-        returning infohash of torrents
-        """
-        return self.infohash
 
 
 class MockLtSession(object):
@@ -238,6 +226,9 @@ class MockLibtorrentDownloadImpl(object):
         self.deferreds_resume = []
         self.info_hash = info_hash
 
+    def set_priority(self, prio):
+        pass
+
     def get_status(self):
         return 0
 
@@ -252,6 +243,12 @@ class MockLibtorrentDownloadImpl(object):
     def stop_remove(self, removestate, removecontent):
         pass
 
+    def setup(self, dcfg=None, pstate=None, wrapperDelay=0, share_mode=False, checkpoint_disabled=False):
+        return Deferred()
+
+    def set_state_callback(self, usercallback, getpeerlist=False):
+        pass
+
 class MockTorrentDef(object):
     """
     Mock for torrentDef
@@ -261,3 +258,6 @@ class MockTorrentDef(object):
 
     def get_infohash(self):
         return self.info_hash
+
+    def is_finalized(self):
+        return True

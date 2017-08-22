@@ -6,14 +6,14 @@ Author(s): Bohao Zhang
 import os
 import copy
 
-from binascii import unhexlify
+from binascii import hexlify, unhexlify
 
 from twisted.internet import defer
 from twisted.internet.task import LoopingCall
-from twisted.internet.defer import inlineCallbacks
+from twisted.internet.defer import Deferred, inlineCallbacks
 
 from Tribler.Test.test_as_server import TestAsServer
-from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent, MockChannelSource, MockMeta, MockLtSession, MockBoostingPolicy, MockLibtorrentDownloadImpl
+from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent, MockChannelSource, MockLtSession, MockBoostingPolicy, MockLibtorrentDownloadImpl, MockTorrentDef
 from Tribler.Test.common import TORRENT_UBUNTU_FILE, TORRENT_UBUNTU_FILE_INFOHASH, TESTS_DATA_DIR
 from Tribler.Test.Core.base_test_channel import BaseTestChannel
 from Tribler.Core.CreditMining.defs import SAVED_ATTR
@@ -216,7 +216,7 @@ class TestBoostingManager(BaseTestChannel):
         #create fake source and fake torrent.
         self.boosting_manager.boosting_sources[dispersy_cid] = MockChannelSource()
         self.boosting_manager.boosting_sources[dispersy_cid].enabled = False
-        self.boosting_manager.torrents[info_hash] = {'enable': 'false', 'source': dispersy_cid_hex, "metainfo": MockMeta(info_hash)}
+        self.boosting_manager.torrents[info_hash] = {'enable': 'false', 'source': dispersy_cid_hex, "metainfo": MockTorrentDef(info_hash)}
 
         #mock _select_torrent()
         def fake_select_torrent():
@@ -269,8 +269,8 @@ class TestBoostingManager(BaseTestChannel):
         self.boosting_manager.boosting_sources[dispersy_cid] = MockChannelSource()
 
         #add fake torrent
-        self.boosting_manager.torrents[info_hash1] = {'source': dispersy_cid_hex, 'metainfo': MockMeta(info_hash1)}
-        self.boosting_manager.torrents[info_hash2] = {'source': dispersy_cid_hex[:29]+'0', 'metainfo': MockMeta(info_hash1)}
+        self.boosting_manager.torrents[info_hash1] = {'source': dispersy_cid_hex, 'metainfo': MockTorrentDef(info_hash1)}
+        self.boosting_manager.torrents[info_hash2] = {'source': dispersy_cid_hex[:29]+'0', 'metainfo': MockTorrentDef(info_hash1)}
 
         #mock stop_download()
         rm_torrent = []
@@ -339,7 +339,35 @@ class TestBoostingManager(BaseTestChannel):
         pass
 
     def test_start_download(self):
-        pass
+        '''
+        test for starting downloading a torrent and add it to the Tribler download list
+        '''
+        #create fake torrent
+        info_hash1 = 'fakeinfohash1'
+        info_hash2 = 'fakeinfohash2'
+        info_hash_not_exist = 'notexistfakeinfohash'
+        self.boosting_manager.torrents[info_hash1] = {'metainfo': MockTorrentDef(info_hash1), 'time': {}}
+        self.boosting_manager.torrents[info_hash2] = {'metainfo': MockTorrentDef(info_hash2), 'time': {}}
+        
+        self.boosting_manager.torrents[info_hash1]['predownload'] = "_" + hexlify(info_hash1) + '.state'
+        self.boosting_manager.torrents[info_hash2]['predownload'] = Deferred()
+
+        #create fake predownloaded file
+        filename = os.path.join(self.session.get_downloads_pstate_dir(), self.boosting_manager.torrents[info_hash1]['predownload'])
+        open(filename, 'w')
+
+        #mock the add() method to create fake MockLibtorrentDownloadImpl
+        self.boosting_manager.session.lm.add = lambda tdef, dscfg, pstate, hidden, share_mode, checkpoint_disabled: MockLibtorrentDownloadImpl(info_hash1)
+
+        #start testing
+        self.boosting_manager.start_download(info_hash_not_exist)
+        self.boosting_manager.start_download(info_hash1)
+        self.boosting_manager.start_download(info_hash2)
+        self.assertTrue('download' in self.boosting_manager.torrents[info_hash1], 'Download cannot be started.')
+        self.assertTrue(isinstance(self.boosting_manager.torrents[info_hash1]['predownload'], str), 'Download cannot be started.')
+        self.assertTrue('download' not in self.boosting_manager.torrents[info_hash2], 'Download starts before predownload finishes.')
+        self.assertTrue(isinstance(self.boosting_manager.torrents[info_hash2]['predownload'], Deferred), 'Predownload callback has not been created.')
+        self.assertEqual(len(self.boosting_manager.torrents), 2, 'Unknown torrent is added to boosting manager unexpectedly.')
 
     def test_stop_download(self):
         '''
@@ -349,9 +377,9 @@ class TestBoostingManager(BaseTestChannel):
         info_hash1 = '111111'
         info_hash2 = '222222'
         info_hash3 = '333333'
-        self.boosting_manager.torrents[info_hash1] = {'metainfo': MockMeta(info_hash1), 'download': MockLibtorrentDownloadImpl(info_hash1), 'time': {}}
-        self.boosting_manager.torrents[info_hash2] = {'metainfo': MockMeta(info_hash2), 'download': MockLibtorrentDownloadImpl(info_hash2), 'time': {}}
-        self.boosting_manager.torrents[info_hash3] = {'metainfo': MockMeta(info_hash3), 'download': MockLibtorrentDownloadImpl(info_hash3), 'time': {}}
+        self.boosting_manager.torrents[info_hash1] = {'metainfo': MockTorrentDef(info_hash1), 'download': MockLibtorrentDownloadImpl(info_hash1), 'time': {}}
+        self.boosting_manager.torrents[info_hash2] = {'metainfo': MockTorrentDef(info_hash2), 'download': MockLibtorrentDownloadImpl(info_hash2), 'time': {}}
+        self.boosting_manager.torrents[info_hash3] = {'metainfo': MockTorrentDef(info_hash3), 'download': MockLibtorrentDownloadImpl(info_hash3), 'time': {}}
 
         self.boosting_manager.torrents[info_hash3]['download'].handle.is_valid = lambda: False
         self.boosting_manager.torrents[info_hash3]['download'].handle.has_metadata = lambda: False
@@ -361,12 +389,6 @@ class TestBoostingManager(BaseTestChannel):
         resume_data1 = {'info-hash': info_hash1}
         resume_data2 = {'info-hash': info_hash2}
         resume_data_not_exist = {'info-hash': 'notexistfakeinfohash'}
-
-        #mock logger functions
-        error_msg = []
-        def fake_logger(format_str, *arg):
-            error_msg.append((format_str % arg))
-        self.boosting_manager._logger.error = fake_logger
 
         #start testing
         self.boosting_manager.stop_download(info_hash1, remove_torrent=False)
@@ -390,9 +412,9 @@ class TestBoostingManager(BaseTestChannel):
         TODO not quite understand the policy here
         '''
         #create fake torrents
-        self.boosting_manager.torrents['fakeinfohash1'] = {'metainfo': MockMeta('fakeinfohash1')}
-        self.boosting_manager.torrents['fakeinfohash2'] = {'metainfo': MockMeta('fakeinfohash2')}
-        self.boosting_manager.torrents['fakeinfohash3'] = {'metainfo': MockMeta('fakeinfohash3')}
+        self.boosting_manager.torrents['fakeinfohash1'] = {'metainfo': MockTorrentDef('fakeinfohash1')}
+        self.boosting_manager.torrents['fakeinfohash2'] = {'metainfo': MockTorrentDef('fakeinfohash2')}
+        self.boosting_manager.torrents['fakeinfohash3'] = {'metainfo': MockTorrentDef('fakeinfohash3')}
 
         self.boosting_manager.torrents['fakeinfohash1']['preload'] = True
 
