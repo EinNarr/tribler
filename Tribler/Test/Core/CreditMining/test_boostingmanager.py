@@ -13,7 +13,7 @@ from twisted.internet.task import LoopingCall
 from twisted.internet.defer import Deferred, inlineCallbacks
 
 from Tribler.Test.test_as_server import TestAsServer
-from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent, MockChannelSource, MockLtSession, MockBoostingPolicy, MockLibtorrentDownloadImpl, MockTorrentDef
+from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent, MockChannelSource, MockLtSession, MockBoostingPolicy, MockLibtorrentDownloadImpl, MockTorrentDef, MockDownloadState
 from Tribler.Test.common import TORRENT_UBUNTU_FILE, TORRENT_UBUNTU_FILE_INFOHASH, TESTS_DATA_DIR
 from Tribler.Test.Core.base_test_channel import BaseTestChannel
 from Tribler.Core.CreditMining.defs import SAVED_ATTR
@@ -316,10 +316,10 @@ class TestBoostingManager(BaseTestChannel):
     def test_on_torrent_notify(self):
         pass
 
-    def scrape_trackers(self):
+    def test_scrape_trackers(self):
         pass
     
-    def set_archive(self):
+    def test_set_archive(self):
         '''
         test for seeting a boosting source to archive mode
         '''
@@ -335,8 +335,21 @@ class TestBoostingManager(BaseTestChannel):
         self.assertEqual(len(self.boosting_manager.boosting_sources), 1, 'Cannot handle unknown sorce.')
         self.assertTrue(self.boosting_manager.boosting_sources['fakechannel'], 'Cannot handle unknown source.')
 
-    def bdl_callback(self):
-        pass
+    def test_bdl_callback(self):
+        #create fake DownloadState
+        info_hash = 'fakeinfohash'
+        download_state = MockDownloadState(info_hash)
+        download_state_not_exist = MockDownloadState('notexistfakeinfohash')
+        self.boosting_manager.torrents[info_hash] = {'metainfo': MockTorrentDef(info_hash), 'peers': {}}
+
+        #start testing
+        return_value = self.boosting_manager._BoostingManager__bdl_callback(download_state)
+        return_value = self.boosting_manager._BoostingManager__bdl_callback(download_state_not_exist)
+        self.assertEqual(return_value, (1.0, True), 'Wrong return value.')
+        self.assertEqual(download_state.get_peerlist(), [{'ip': 'fakeip1', 'port': 'port1', 'have': [True, False]}, {'ip': 'fakeip2', 'port': 'port2', 'have': [True, True]}], 'Wrong peers selected.')
+        self.assertEqual(self.boosting_manager.torrents[info_hash]['availability'], 30, 'Availability not updated.')
+        self.assertEqual(self.boosting_manager.torrents[info_hash]['livepeers'], [{'ip': 'fakeip1', 'port': 'port1', 'have': [True, False]}, {'ip': 'fakeip2', 'port': 'port2', 'have': [True, True]}], 'Wrong live peers.')
+        self.assertEqual(len(self.boosting_manager.torrents), 1, 'Wrong number of torrents in boosting manager.')
 
     def test_start_download(self):
         '''
