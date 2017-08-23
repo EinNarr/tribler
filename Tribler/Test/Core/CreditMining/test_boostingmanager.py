@@ -311,9 +311,41 @@ class TestBoostingManager(BaseTestChannel):
         pass
 
     def test_on_torrent_insert(self):
-        pass
-    
+        '''
+        test for inserting a torrent to boosting manager
+        '''
+        #create fake torrent and source
+        info_hash1 = 'fakeinfohash1'
+        info_hash2 = 'fakeinfohash2'
+        source = 'fakechannelsource'
+        torrent = {}
+        torrent['name'] = 'faketorrentname'
+        torrent['metainfo'] = MockTorrentDef(info_hash1)
+        torrent['num_seeders'] = 10
+        duplicate_torrent = torrent.copy()
+        duplicate_torrent['num_seeders'] = 30
+        duplicate_torrent['metainfo'] = MockTorrentDef(info_hash2)
+        self.boosting_manager.boosting_sources[source] = MockChannelSource()
+
+        #mock _pre_download_torrent
+        self.boosting_manager._pre_download_torrent = lambda *_: Deferred()
+
+        #start testing
+        self.boosting_manager.on_torrent_insert(source, info_hash1, torrent)
+        self.assertEqual(len(self.boosting_manager.torrents), 1, 'Torrent not correctly inserted.')
+        self.assertEqual(self.boosting_manager.torrents[info_hash1]['name'], torrent['name'], 'Torrent not correctly inserted.')
+        self.assertEqual(self.boosting_manager.torrents[info_hash1]['metainfo'], torrent['metainfo'], 'Torrent not correctly inserted.')
+        self.assertEqual(self.boosting_manager.torrents[info_hash1]['num_seeders'], 10, 'Torrent not correctly inserted.')
+        self.boosting_manager.on_torrent_insert(source, info_hash2, duplicate_torrent)
+        self.assertEqual(len(self.boosting_manager.torrents), 2, 'Cannot insert duplicate torrent.')
+        self.assertTrue(self.boosting_manager.torrents[info_hash1]['is_duplicate'], 'Duplicate torrent with fewer seeder is with wrong "is_duplicate" flag.')
+        self.assertFalse(self.boosting_manager.torrents[info_hash2]['is_duplicate'], 'Duplicate torrent with more seeder is with wrong "is_duplicate" flag.')
+      
+
     def test_on_torrent_notify(self):
+        '''
+        test for renewing the value in boosting manager when having new seeder/leecher value from tracker.
+        '''
         #create fake torrents
         info_hash = 'fakeinfohash'
         info_hash_not_exist = 'notexistfakeinfohash'
@@ -349,6 +381,9 @@ class TestBoostingManager(BaseTestChannel):
         self.assertTrue(self.boosting_manager.boosting_sources['fakechannel'], 'Cannot handle unknown source.')
 
     def test_bdl_callback(self):
+        '''
+        test for __bdl_callback()
+        '''
         #create fake torrents and DownloadState
         info_hash = 'fakeinfohash'
         download_state = MockDownloadState(info_hash)
