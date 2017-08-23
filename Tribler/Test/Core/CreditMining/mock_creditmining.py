@@ -262,6 +262,12 @@ class MockTorrentDef(object):
     def is_finalized(self):
         return True
 
+    def get_files_with_length(self):
+        return []
+
+    def get_metainfo(self):
+        return {'info': {'piece length': 32, 'name': 'fakename', 'length': 66}}
+
 class MockDownloadState(object):
     '''
     Mock for DownloadState
@@ -284,3 +290,12 @@ class MockDownloadState(object):
 
     def get_availability(self):
         return 30
+
+class MockStatsAlert(object):
+    def __init__(self, info_hash, category_value):
+        self.resume_data = {'info-hash': info_hash}
+        self.category_value = category_value
+        self.handle = MockLtTorrent(info_hash)
+    
+    def category(self):
+        return self.category_value
