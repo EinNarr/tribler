@@ -261,3 +261,26 @@ class MockTorrentDef(object):
 
     def is_finalized(self):
         return True
+
+class MockDownloadState(object):
+    '''
+    Mock for DownloadState
+    '''
+    def __init__(self, info_hash):
+        self.stats = {}
+        self.download = MockLibtorrentDownloadImpl(info_hash)
+
+    def get_download(self):
+        return self.download
+
+    def get_peerlist(self):
+        if 'spew' not in self.stats:
+            self.stats['spew'] = []
+            self.stats['spew'].append({'ip': '127.0.0.33', 'port': '6666', 'have': [True, False]})
+            self.stats['spew'].append({'ip': 'fakeip1', 'port': 'port1', 'have': [True, False]})
+            self.stats['spew'].append({'ip': 'fakeip2', 'port': 'port2', 'have': [True, True]})
+            self.stats['spew'].append({'ip': 'fakeip3', 'port': 'port3', 'have': [False, False]})
+        return self.stats['spew']
+
+    def get_availability(self):
+        return 30
