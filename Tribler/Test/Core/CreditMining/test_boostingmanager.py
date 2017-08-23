@@ -8,12 +8,14 @@ import copy
 
 from binascii import hexlify, unhexlify
 
+from libtorrent import stats_alert
+
 from twisted.internet import defer
 from twisted.internet.task import LoopingCall
 from twisted.internet.defer import Deferred, inlineCallbacks
 
 from Tribler.Test.test_as_server import TestAsServer
-from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent, MockChannelSource, MockLtSession, MockBoostingPolicy, MockLibtorrentDownloadImpl, MockTorrentDef, MockDownloadState
+from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent, MockChannelSource, MockLtSession, MockBoostingPolicy, MockLibtorrentDownloadImpl, MockTorrentDef, MockDownloadState, MockStatsAlert
 from Tribler.Test.common import TORRENT_UBUNTU_FILE, TORRENT_UBUNTU_FILE_INFOHASH, TESTS_DATA_DIR
 from Tribler.Test.Core.base_test_channel import BaseTestChannel
 from Tribler.Core.CreditMining.defs import SAVED_ATTR
@@ -47,8 +49,6 @@ class TestBoostingManager(BaseTestChannel):
         # self.session.lm.ltmgr.get_session().find_torrent = lambda _: MockLtTorrent()
 
         self.boosting_manager = BoostingManager(self.session, self.bsettings)
-        #setting up a mock channel source
-        self.mock_channel_source = MockChannelSource()
 
         # self.session.lm.boosting_manager = self.boosting_manager
 
@@ -59,7 +59,7 @@ class TestBoostingManager(BaseTestChannel):
         self.bsettings = BoostingSettings(self.session)
         self.bsettings.credit_mining_path = os.path.join(self.session_base_dir, "credit_mining")
         self.bsettings.load_config = False
-        self.bsettings.check_dependencies = False
+        self.bsettings.check_dependencies = True
         self.bsettings.min_connection_start = -1
         self.bsettings.min_channels_start = -1
 
@@ -198,10 +198,10 @@ class TestBoostingManager(BaseTestChannel):
         '''
         test for getting a credit-mining source by source key
         '''
-        self.boosting_manager.boosting_sources['fakesourcekey'] = self.mock_channel_source
+        self.boosting_manager.boosting_sources['fakesourcekey'] = MockChannelSource()
 
         source = self.boosting_manager.get_source_object('fakesourcekey')
-        self.assertEqual(source, self.mock_channel_source, "Can not get channel source by source key")
+        self.assertEqual(source, self.boosting_manager.boosting_sources['fakesourcekey'], "Can not get channel source by source key")
 
     def test_set_enable_mining(self):
         """
@@ -305,7 +305,30 @@ class TestBoostingManager(BaseTestChannel):
         #TODO currently there is no difference between inserting a new peer or a existing peer.
     
     def test_process_resume_alert(self):
-        pass
+        #mock resume method
+        resumed = []
+        def fake_resume(_):
+            resumed.append(True)
+
+        #create fake torrents
+        info_hash = 'fakeinfohash'
+        self.boosting_manager.torrents[info_hash] = {'metainfo': MockTorrentDef(info_hash), 'predownload': Deferred().addCallback(fake_resume)}
+        
+        #create fake libtorrent alerts
+        alerts = []
+        alerts.append(MockStatsAlert(info_hash, 8))
+
+        #mock pre_session.pop_alerts()
+        self.boosting_manager.pre_session.pop_alerts = lambda: alerts
+
+        #file name of fake resume data file
+        basename = "_" + hexlify(info_hash) + '.state'
+        filename = os.path.join(self.boosting_manager.session.get_downloads_pstate_dir(), basename)
+        
+        #start testing
+        self.boosting_manager._BoostingManager__process_resume_alert()
+        self.assertTrue(os.path.isfile(filename), 'Resume data is not writen to file.')
+        self.assertTrue(resumed[0], 'Resume callback is not called.')
 
     def test_pre_download_torrent(self):
         pass
@@ -362,7 +385,29 @@ class TestBoostingManager(BaseTestChannel):
         self.assertEqual(self.boosting_manager.torrents[info_hash]['num_leechers'], 30, 'Number of leechers is not updated in boosting manager.')
 
     def test_scrape_trackers(self):
-        pass
+        '''
+        test for manually scraping tracker by requesting to tracker manager
+        #TODO not sure of the function
+        '''
+        #create fake torrent
+        info_hash = 'fakeinfohash'
+        self.boosting_manager.torrents[info_hash] = {'metainfo': MockTorrentDef(info_hash), 'peers': {}, 'num_seeders': 0, 'num_leechers': 0}
+
+        #mock get torrent
+        self.session.lm.ltmgr.get_session().find_torrent = lambda info_hash: MockLtTorrent(info_hash)
+
+        #mock add_gui_request
+        requested = []
+        def fake_add_gui_request(info_hash):
+            requested.append(info_hash)
+        self.boosting_manager.session.lm.torrent_checker.add_gui_request = fake_add_gui_request
+
+        #start testing
+        self.boosting_manager.scrape_trackers()
+        self.assertEqual(requested, [info_hash], 'GUI request to check health is not performed.')
+        self.assertEqual(self.boosting_manager.torrents[info_hash]['num_seeders'], 4, 'Torrent health info is not updated from the tracker.')
+        self.assertEqual(self.boosting_manager.torrents[info_hash]['num_leechers'], 3, 'Torrent health info is not updated from the tracker.')
+        self.assertEqual(len(self.boosting_manager.torrents[info_hash]['peers']), 6, 'Torrent health info is not updated from the tracker.')
     
     def test_set_archive(self):
         '''
