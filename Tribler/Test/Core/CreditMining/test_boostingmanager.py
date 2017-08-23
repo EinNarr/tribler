@@ -314,7 +314,20 @@ class TestBoostingManager(BaseTestChannel):
         pass
     
     def test_on_torrent_notify(self):
-        pass
+        #create fake torrents
+        info_hash = 'fakeinfohash'
+        info_hash_not_exist = 'notexistfakeinfohash'
+        self.boosting_manager.torrents[info_hash] = {'metainfo': MockTorrentDef(info_hash), 'num_seeders': 10, 'num_leechers': 10}
+
+        #mock getTorrent
+        self.boosting_manager.torrent_db.getTorrent = lambda _, keys: {'infohash': info_hash, 'num_seeders': 30, 'num_leechers': 30}
+
+        #start testing
+        self.boosting_manager.on_torrent_notify(NTFY_TORRENTS, [NTFY_UPDATE], info_hash)
+        self.boosting_manager.on_torrent_notify(NTFY_TORRENTS, [NTFY_UPDATE], info_hash_not_exist)
+        self.assertEqual(len(self.boosting_manager.torrents), 1, 'Wrong number of torrents in boosting manager.')
+        self.assertEqual(self.boosting_manager.torrents[info_hash]['num_seeders'], 30, 'Number of seeders is not updated in boosting manager.')
+        self.assertEqual(self.boosting_manager.torrents[info_hash]['num_leechers'], 30, 'Number of leechers is not updated in boosting manager.')
 
     def test_scrape_trackers(self):
         pass
@@ -336,7 +349,7 @@ class TestBoostingManager(BaseTestChannel):
         self.assertTrue(self.boosting_manager.boosting_sources['fakechannel'], 'Cannot handle unknown source.')
 
     def test_bdl_callback(self):
-        #create fake DownloadState
+        #create fake torrents and DownloadState
         info_hash = 'fakeinfohash'
         download_state = MockDownloadState(info_hash)
         download_state_not_exist = MockDownloadState('notexistfakeinfohash')
