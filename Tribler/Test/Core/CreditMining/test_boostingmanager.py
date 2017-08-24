@@ -46,11 +46,16 @@ class TestBoostingManager(BaseTestChannel):
 
         self.set_boosting_settings()
 
-        # self.session.lm.ltmgr.get_session().find_torrent = lambda _: MockLtTorrent()
+        #cheating all dependency checks
+        self.session.get_libtorrent = lambda: True
+        self.session.get_torrent_checking = lambda: True
+        self.session.get_dispersy = lambda: True
+        self.session.get_torrent_store = lambda: True
+        self.session.get_enable_torrent_search = lambda: True
+        self.session.get_enable_channel_search = lambda: True
+        self.session.get_megacache = lambda: True
 
         self.boosting_manager = BoostingManager(self.session, self.bsettings)
-
-        # self.session.lm.boosting_manager = self.boosting_manager
 
     def set_boosting_settings(self):
         """
@@ -58,7 +63,7 @@ class TestBoostingManager(BaseTestChannel):
         """
         self.bsettings = BoostingSettings(self.session)
         self.bsettings.credit_mining_path = os.path.join(self.session_base_dir, "credit_mining")
-        self.bsettings.load_config = False
+        self.bsettings.load_config = True
         self.bsettings.check_dependencies = True
         self.bsettings.min_connection_start = -1
         self.bsettings.min_channels_start = -1
@@ -340,6 +345,7 @@ class TestBoostingManager(BaseTestChannel):
         #create fake torrent and source
         info_hash1 = 'fakeinfohash1'
         info_hash2 = 'fakeinfohash2'
+        info_hash3 = 'fakeinfohash3'
         source = 'fakechannelsource'
         torrent = {}
         torrent['name'] = 'faketorrentname'
@@ -348,10 +354,26 @@ class TestBoostingManager(BaseTestChannel):
         duplicate_torrent = torrent.copy()
         duplicate_torrent['num_seeders'] = 30
         duplicate_torrent['metainfo'] = MockTorrentDef(info_hash2)
+        expired_torrent = torrent.copy()
+        expired_torrent['metainfo'] = MockTorrentDef(info_hash3)
         self.boosting_manager.boosting_sources[source] = MockChannelSource()
+
+        #create fake file for torrent1
+        basename = hexlify(info_hash1) + '.state'
+        filename = os.path.join(self.boosting_manager.session.get_downloads_pstate_dir(), basename)
+        open(filename, 'w')
+        basename = '_' + hexlify(info_hash1) + '.state'
+        filename = os.path.join(self.boosting_manager.session.get_downloads_pstate_dir(), basename)
+        open(filename, 'w')#TODO chekc here, which name is correct.
 
         #mock _pre_download_torrent
         self.boosting_manager._pre_download_torrent = lambda *_: Deferred()
+
+        #mock stop_download
+        def fake_stop_download(infohash, remove_torrent=False, reason="N/A"):
+            if 'download' in self.boosting_manager.torrents[infohash]:
+                del self.boosting_manager.torrents[infohash]['download']
+        self.boosting_manager.stop_download = fake_stop_download
 
         #start testing
         self.boosting_manager.on_torrent_insert(source, info_hash1, torrent)
@@ -359,11 +381,16 @@ class TestBoostingManager(BaseTestChannel):
         self.assertEqual(self.boosting_manager.torrents[info_hash1]['name'], torrent['name'], 'Torrent not correctly inserted.')
         self.assertEqual(self.boosting_manager.torrents[info_hash1]['metainfo'], torrent['metainfo'], 'Torrent not correctly inserted.')
         self.assertEqual(self.boosting_manager.torrents[info_hash1]['num_seeders'], 10, 'Torrent not correctly inserted.')
+
+        self.boosting_manager.torrents[info_hash1]['download'] = MockLibtorrentDownloadImpl(info_hash1)
         self.boosting_manager.on_torrent_insert(source, info_hash2, duplicate_torrent)
         self.assertEqual(len(self.boosting_manager.torrents), 2, 'Cannot insert duplicate torrent.')
-        self.assertTrue(self.boosting_manager.torrents[info_hash1]['is_duplicate'], 'Duplicate torrent with fewer seeder is with wrong "is_duplicate" flag.')
         self.assertFalse(self.boosting_manager.torrents[info_hash2]['is_duplicate'], 'Duplicate torrent with more seeder is with wrong "is_duplicate" flag.')
-      
+        self.assertFalse(self.boosting_manager.torrents[info_hash2]['is_duplicate'], 'Duplicate torrent with more seeder is with wrong "is_duplicate" flag.')
+        self.assertFalse('download' in self.boosting_manager.torrents[info_hash1], 'Downloading of the duplicate torrent with fewer seeder cannot be stopped.')
+
+        self.boosting_manager.on_torrent_insert('notexistfakechannelsource', info_hash3, expired_torrent)
+        self.assertEqual(len(self.boosting_manager.torrents), 2, 'Torrent from not boosting source added to boosting_manager unexpectly')
 
     def test_on_torrent_notify(self):
         '''
@@ -451,16 +478,22 @@ class TestBoostingManager(BaseTestChannel):
         #create fake torrent
         info_hash1 = 'fakeinfohash1'
         info_hash2 = 'fakeinfohash2'
+        info_hash3 = 'fakeinfohash3'
         info_hash_not_exist = 'notexistfakeinfohash'
         self.boosting_manager.torrents[info_hash1] = {'metainfo': MockTorrentDef(info_hash1), 'time': {}}
         self.boosting_manager.torrents[info_hash2] = {'metainfo': MockTorrentDef(info_hash2), 'time': {}}
+        self.boosting_manager.torrents[info_hash3] = {'metainfo': MockTorrentDef(info_hash3), 'time': {}}
         
         self.boosting_manager.torrents[info_hash1]['predownload'] = "_" + hexlify(info_hash1) + '.state'
         self.boosting_manager.torrents[info_hash2]['predownload'] = Deferred()
+        self.boosting_manager.torrents[info_hash1]['predownload'] = "_" + hexlify(info_hash3) + '.state'
 
         #create fake predownloaded file
         filename = os.path.join(self.session.get_downloads_pstate_dir(), self.boosting_manager.torrents[info_hash1]['predownload'])
         open(filename, 'w')
+
+        #mock download_exists()
+        self.boosting_manager.session.lm.download_exists = lambda info_hash: info_hash == info_hash3
 
         #mock the add() method to create fake MockLibtorrentDownloadImpl
         self.boosting_manager.session.lm.add = lambda tdef, dscfg, pstate, hidden, share_mode, checkpoint_disabled: MockLibtorrentDownloadImpl(info_hash1)
@@ -469,11 +502,14 @@ class TestBoostingManager(BaseTestChannel):
         self.boosting_manager.start_download(info_hash_not_exist)
         self.boosting_manager.start_download(info_hash1)
         self.boosting_manager.start_download(info_hash2)
+        self.boosting_manager.start_download(info_hash3)
         self.assertTrue('download' in self.boosting_manager.torrents[info_hash1], 'Download cannot be started.')
         self.assertTrue(isinstance(self.boosting_manager.torrents[info_hash1]['predownload'], str), 'Download cannot be started.')
         self.assertTrue('download' not in self.boosting_manager.torrents[info_hash2], 'Download starts before predownload finishes.')
         self.assertTrue(isinstance(self.boosting_manager.torrents[info_hash2]['predownload'], Deferred), 'Predownload callback has not been created.')
-        self.assertEqual(len(self.boosting_manager.torrents), 2, 'Unknown torrent is added to boosting manager unexpectedly.')
+        self.assertFalse(self.boosting_manager.torrents[info_hash3]['time'], 'A torrent is started twice.')
+        self.assertEqual(len(self.boosting_manager.torrents), 3, 'Unknown torrent is added to boosting manager unexpectedly.')
+        
 
     def test_stop_download(self):
         '''
