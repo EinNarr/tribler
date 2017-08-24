@@ -3,6 +3,7 @@ Module of Credit mining boosting manager, the core class for credit minging
 
 Author(s): Bohao Zhang
 """
+import glob
 import os
 import copy
 
@@ -198,6 +199,21 @@ class TestBoostingManager(BaseTestChannel):
     #                      self.tdef.get_files_with_length(), self.tdef.get_trackers_as_single_tuple()]]
 
     #     self.insert_torrents_into_channel(torrent_list)
+    def test_shut_down(self):
+        #set up a fake dirty boosting manager
+        self.boosting_sources = {'fakesource1': MockChannelSource(), 'fakesource2': MockChannelSource()}
+        open(self.boosting_manager.settings.credit_mining_path + '/fakefile', 'w')
+        open(self.boosting_manager.session.get_downloads_pstate_dir() + "/_fakeinfohash.state", 'w')
+
+        #start testing
+        self.boosting_manager.shutdown()
+        self.assertFalse(self.boosting_manager._pending_tasks, 'Pending tasks not cancelled when shutdown.')
+        self.assertFalse(self.boosting_manager.boosting_sources, 'Boosting sources are not removed when shutdown.')
+        self.assertFalse(os.path.isdir(self.boosting_manager.settings.credit_mining_path),
+                         'Credit mining download data is not removed when shutdown.')
+        self.assertFalse(glob.glob(self.session.get_downloads_pstate_dir()+"/_*.state"),
+                         'Pre-download files are not removed when shutdown.')
+
 
     def test_get_source_object(self):
         '''
@@ -362,9 +378,6 @@ class TestBoostingManager(BaseTestChannel):
         basename = hexlify(info_hash1) + '.state'
         filename = os.path.join(self.boosting_manager.session.get_downloads_pstate_dir(), basename)
         open(filename, 'w')
-        basename = '_' + hexlify(info_hash1) + '.state'
-        filename = os.path.join(self.boosting_manager.session.get_downloads_pstate_dir(), basename)
-        open(filename, 'w')#TODO chekc here, which name is correct.
 
         #mock _pre_download_torrent
         self.boosting_manager._pre_download_torrent = lambda *_: Deferred()
