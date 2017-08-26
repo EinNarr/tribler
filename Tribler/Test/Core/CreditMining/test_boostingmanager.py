@@ -7,6 +7,8 @@ import glob
 import os
 import copy
 
+from mock import patch #TODO should be replaced by unittest.mock in python 3
+
 from binascii import hexlify, unhexlify
 
 from libtorrent import stats_alert
@@ -16,7 +18,7 @@ from twisted.internet.task import LoopingCall
 from twisted.internet.defer import Deferred, inlineCallbacks
 
 from Tribler.Test.test_as_server import TestAsServer
-from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent, MockChannelSource, MockLtSession, MockBoostingPolicy, MockLibtorrentDownloadImpl, MockTorrentDef, MockDownloadState, MockStatsAlert
+from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtTorrent, MockChannelSource, MockLtSession, MockBoostingPolicy, MockLibtorrentDownloadImpl, MockTorrentDef, MockDownloadState, MockStatsAlert, MockTorrentInfo
 from Tribler.Test.common import TORRENT_UBUNTU_FILE, TORRENT_UBUNTU_FILE_INFOHASH, TESTS_DATA_DIR
 from Tribler.Test.Core.base_test_channel import BaseTestChannel
 from Tribler.Core.CreditMining.defs import SAVED_ATTR
@@ -352,7 +354,50 @@ class TestBoostingManager(BaseTestChannel):
         self.assertTrue(resumed[0], 'Resume callback is not called.')
 
     def test_pre_download_torrent(self):
-        pass
+        #create fake torrent
+        info_hash = 'fakeinfohash1'
+        # source = 'fakechannelsource'
+        torrent = {'metainfo': MockTorrentDef(info_hash), 'peers': {}}
+        thandle = MockLtTorrent(info_hash)
+        self.boosting_manager.torrents[info_hash] = torrent
+
+        #mock libtorrent_info()
+        fake_torrent_info = lambda metainfo: MockTorrentInfo()
+
+        #mock libtorrent.session.add_torrent
+        self.boosting_manager.pre_session.add_torrent = lambda dict: thandle
+
+        #mock libtorrent.session.remove_torrent
+        self.boosting_manager.pre_session.remove_torrent = lambda *_: None
+
+        #start testing
+        with patch('libtorrent.torrent_info', fake_torrent_info):
+            deferred_handle = self.boosting_manager._pre_download_torrent('fakesource', info_hash, torrent)
+        self.assertTrue("pre_download_%s" % hexlify(info_hash) in self.boosting_manager._pending_tasks, 'Looping call to monitor pre-download is not registered.')
+        self.assertTrue(deferred_handle.callbacks[0][0][0], '_on_finish deferred is not registered')
+
+        #test timeout
+        lc = self.boosting_manager._pending_tasks["pre_download_%s" % hexlify(info_hash)][1]
+        lc.f(*lc.a)
+        self.assertTrue("pre_download_%s" % hexlify(info_hash) in self.boosting_manager._pending_tasks, 'Looping call to monitor pre-download is canceled unexpectedly.')
+
+        #test timeout
+        lc.f(lc.a[0],0)
+        self.assertFalse("pre_download_%s" % hexlify(info_hash) in self.boosting_manager._pending_tasks, 'Timeout pre-download task is not cancel.')
+        self.assertTrue(thandle.paused and thandle.resume_data_saved, 'Timeout pre-download torrent is not paused.')
+
+        #test finished prospecting
+        thandle.paused = False
+        thandle.resume_data_saved = True
+        thandle.torrent_status.num_pieces = 5
+        lc.f(*lc.a)
+        self.assertFalse("pre_download_%s" % hexlify(info_hash) in self.boosting_manager._pending_tasks, 'Timeout pre-download task is not cancel.')
+        self.assertTrue(thandle.paused and thandle.resume_data_saved, 'Pre-downloaded torrent is not paused.')
+        self.assertTrue(self.boosting_manager.finish_pre_dl[info_hash], 'Finished pre-download is not recorded.')
+
+        #test _on_finish
+        deferred_handle.callbacks[0][0][0](lc.a[0])
+        self.assertEqual(self.boosting_manager.torrents[info_hash]['predownload'], "_" + hexlify(info_hash) + '.state', 'Pre-downloaded torrent is not properly labeled in boosting manager.')
 
     def test_on_torrent_insert(self):
         '''
