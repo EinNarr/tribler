@@ -17,8 +17,11 @@ class MockLtTorrent(object):
     """
     def __init__(self, infohash="12345"):
         self.info_hash = infohash
-        self.all_time_download = 0
-        self.all_time_upload = 0
+        self.torrent_status = MockTorrentStatus(infohash)
+        
+        #fake flag to record whether certain methods are called
+        self.paused = False
+        self.resume_data_saved = False
 
     def upload_limit(self):
         return 12
@@ -61,13 +64,16 @@ class MockLtTorrent(object):
         return True
 
     def status(self):
-        return self
+        return self.torrent_status
 
     def pause(self):
-        pass
+        self.paused = True
 
     def resume(self):
         pass
+
+    def save_resume_data(self):
+        self.resume_data_saved = True
 
 
 class MockLtPeer(object):
@@ -292,6 +298,9 @@ class MockDownloadState(object):
         return 30
 
 class MockStatsAlert(object):
+    '''
+    Mock class for libtorrent.stats_alert
+    '''
     def __init__(self, info_hash, category_value):
         self.resume_data = {'info-hash': info_hash}
         self.category_value = category_value
@@ -299,3 +308,21 @@ class MockStatsAlert(object):
     
     def category(self):
         return self.category_value
+
+class MockTorrentInfo(object):
+    '''
+    Mock class for libtorrent.torrent_info
+    '''
+    def __init__(self):
+        pass
+
+class MockTorrentStatus(object):
+    '''
+    Mock class for libtorrent.torrent_status
+    '''
+    def __init__(self, info_hash):
+        self.info_hash = info_hash
+        self.all_time_download = 0
+        self.all_time_upload = 0
+        self.num_pieces = 0
+        self.progress = 0
