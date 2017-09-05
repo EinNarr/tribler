@@ -1,9 +1,9 @@
 """
-Module of Credit mining function testing.
+Module of Credit mining unility function testing.
 
-Author(s): Ardhi Putra
+Author(s): Ardhi Putra, Bohao Zhang
 """
-import binascii
+
 from binascii import hexlify, unhexlify
 
 import os
@@ -17,9 +17,8 @@ from Tribler.Core.CreditMining.credit_mining_util import ent2chr, validate_sourc
 from Tribler.Core.CreditMining.credit_mining_util import levenshtein_dist, source_to_string, string_to_source
 from Tribler.Core.DownloadConfig import DefaultDownloadStartupConfig
 from Tribler.Core.TorrentDef import TorrentDef
-from Tribler.Test.common import TESTS_DATA_DIR, TORRENT_UBUNTU_FILE 
-from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtPeer, MockLtSession, MockLtTorrent, \
-    MockPeerId
+from Tribler.Test.common import TESTS_DATA_DIR, TORRENT_UBUNTU_FILE
+from Tribler.Test.Core.CreditMining.mock_creditmining import MockLtPeer, MockLtSession, MockPeerId
 from Tribler.Test.Core.base_test import TriblerCoreTest
 from Tribler.dispersy.util import blocking_call_on_reactor_thread
 
@@ -61,7 +60,6 @@ class TestBoostingManagerUtilities(TriblerCoreTest):
         self.bsettings.check_dependencies = False
         self.bsettings.initial_logging_interval = 900
 
-
     def tearDown(self, annotate=True):
         # TODO(ardhi) : remove it when Tribler free of singleton
         # and 1 below
@@ -69,18 +67,15 @@ class TestBoostingManagerUtilities(TriblerCoreTest):
 
         super(TestBoostingManagerUtilities, self).tearDown()
 
-
     def test_validate_source_string(self):
         """
         test to check whether a source string is a valid source or not
         """
-        self.assertEqual(unhexlify("0" * 40), validate_source_string("0" * 40),\
-                        'Hexlified string not recognized as source')
-        self.assertEqual(("0" * 39), validate_source_string("0" * 39),\
-                        'String with wrong length recognized as source')
-        self.assertEqual(("http" + "0" * 36), validate_source_string("http" + "0" * 36),\
-                        'Http address recognized as source')
-
+        self.assertEqual(unhexlify("0" * 40), validate_source_string("0" * 40),
+                         'Hexlified string not recognized as source')
+        self.assertEqual(("0" * 39), validate_source_string("0" * 39), 'String with wrong length recognized as source')
+        self.assertEqual(("http" + "0" * 36), validate_source_string("http" + "0" * 36),
+                         'Http address recognized as source')
 
     def test_levenshtein(self):
         """
@@ -114,18 +109,14 @@ class TestBoostingManagerUtilities(TriblerCoreTest):
         # equal filename check
         self.assertEqual(dist, 28, "Wrong levenshtein distance")
 
-
     def test_source_to_string(self):
         """
         test converting source to string
         """
         self.assertEqual(hexlify("0" * 20), source_to_string("0" * 20), 'Unhexlified string not converted')
         self.assertEqual(("0" * 19), source_to_string("0" * 19), 'String with wrong length converted')
-        self.assertEqual(("http://" + "0" * 13), source_to_string("http://" + "0" * 13),\
-                        "Http address converted")
-        self.assertEqual(("https://" + "0" * 12), source_to_string("https://" + "0" * 12),\
-                        "Https address converted")
-
+        self.assertEqual(("http://" + "0" * 13), source_to_string("http://" + "0" * 13), "Http address converted")
+        self.assertEqual(("https://" + "0" * 12), source_to_string("https://" + "0" * 12), "Https address converted")
 
     def test_string_to_source(self):
         """
@@ -133,28 +124,23 @@ class TestBoostingManagerUtilities(TriblerCoreTest):
         """
         self.assertEqual(unhexlify("0" * 40), string_to_source("0" * 40), 'Hexlified string not converted')
         self.assertEqual(("0" * 39), string_to_source("0" * 39), 'String with wrong length converted')
-        self.assertEqual(("http://" + "0" * 33), string_to_source("http://" + "0" * 33),\
-                        "Http address converted")
-        self.assertEqual(("https://" + "0" * 32), string_to_source("https://" + "0" * 32),\
-                        "Https address converted")
-
+        self.assertEqual(("http://" + "0" * 33), string_to_source("http://" + "0" * 33), "Http address converted")
+        self.assertEqual(("https://" + "0" * 32), string_to_source("https://" + "0" * 32), "Https address converted")
 
     def test_compare_torrents(self):
         """
         test comparing torrents
         """
         torrent_names = []
-        torrent_names.append(os.path.join(TESTS_DATA_DIR,\
-                            "Night.Of.The.Living.Dead_1080p_archive.torrent"))
-        torrent_names.append(os.path.join(TESTS_DATA_DIR,\
-                            "Night.Of.The.Living.Dead_1080p_archive_comparetest1.torrent"))
-        torrent_names.append(os.path.join(TESTS_DATA_DIR,\
-                            TORRENT_UBUNTU_FILE))
-        torrent_names.append(os.path.join(TESTS_DATA_DIR,\
-                            "Night.Of.The.Living.Dead_1080p_archive_comparetest2.torrent"))
+        torrent_names.append(os.path.join(TESTS_DATA_DIR, "Night.Of.The.Living.Dead_1080p_archive.torrent"))
+        torrent_names.append(os.path.join(TESTS_DATA_DIR,
+                                          "Night.Of.The.Living.Dead_1080p_archive_comparetest1.torrent"))
+        torrent_names.append(os.path.join(TESTS_DATA_DIR, TORRENT_UBUNTU_FILE))
+        torrent_names.append(os.path.join(TESTS_DATA_DIR,
+                                          "Night.Of.The.Living.Dead_1080p_archive_comparetest2.torrent"))
 
         def get_dict(torrentDef):
-            torrent = {}
+            torrent = dict()
             torrent['name'] = torrentDef.get_name()
             torrent['metainfo'] = torrentDef
             torrent['creation_date'] = torrentDef.get_creation_date()
@@ -166,16 +152,15 @@ class TestBoostingManagerUtilities(TriblerCoreTest):
         for name in torrent_names:
             torrents.append(get_dict(TorrentDef.load(name)))
 
-        self.assertNotEqual(torrents[0]['metainfo'].get_infohash(), torrents[1]['metainfo'].get_infohash(),\
+        self.assertNotEqual(torrents[0]['metainfo'].get_infohash(), torrents[1]['metainfo'].get_infohash(),
                             "compared torrents have same infohash")
 
-        self.assertTrue(compare_torrents(torrents[0], torrents[1]),\
+        self.assertTrue(compare_torrents(torrents[0], torrents[1]),
                         "Same swarm with different infohash undetected")
-        self.assertFalse(compare_torrents(torrents[0], torrents[2]),\
-                        "Torrents with different number of files regarded as the same")
-        self.assertFalse(compare_torrents(torrents[0], torrents[3]),\
-                        "Torrents with different size of file regarded as the same")
-
+        self.assertFalse(compare_torrents(torrents[0], torrents[2]),
+                         "Torrents with different number of files regarded as the same")
+        self.assertFalse(compare_torrents(torrents[0], torrents[3]),
+                         "Torrents with different size of file regarded as the same")
 
     def test_ent2chr(self):
         """

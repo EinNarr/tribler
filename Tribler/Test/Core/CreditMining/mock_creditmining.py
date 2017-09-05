@@ -1,8 +1,9 @@
 """
 Module of Credit mining mock classes.
 
-Author(s): Ardhi Putra
+Author(s): Ardhi Putra, Bohao Zhang
 """
+
 from twisted.web.resource import Resource
 from twisted.internet.defer import Deferred
 
@@ -19,7 +20,7 @@ class MockLtTorrent(object):
         self.info_hash = infohash
         self.torrent_status = MockTorrentStatus(infohash)
         
-        #fake flag to record whether certain methods are called
+        # fake flag to record whether certain methods are called
         self.paused = False
         self.resume_data_saved = False
 
@@ -280,9 +281,9 @@ class MockTorrentDef(object):
         return {'info': {'piece length': 32, 'name': 'fakename', 'length': 66}}
 
 class MockDownloadState(object):
-    '''
+    """
     Mock for DownloadState
-    '''
+    """
     def __init__(self, info_hash):
         self.stats = {}
         self.download = MockLibtorrentDownloadImpl(info_hash)
@@ -303,9 +304,9 @@ class MockDownloadState(object):
         return 30
 
 class MockStatsAlert(object):
-    '''
+    """
     Mock class for libtorrent.stats_alert
-    '''
+    """
     def __init__(self, info_hash, category_value):
         self.resume_data = {'info-hash': info_hash}
         self.category_value = category_value
@@ -315,16 +316,16 @@ class MockStatsAlert(object):
         return self.category_value
 
 class MockTorrentInfo(object):
-    '''
+    """
     Mock class for libtorrent.torrent_info
-    '''
+    """
     def __init__(self):
         pass
 
 class MockTorrentStatus(object):
-    '''
+    """
     Mock class for libtorrent.torrent_status
-    '''
+    """
     def __init__(self, info_hash):
         self.info_hash = info_hash
         self.all_time_download = 0

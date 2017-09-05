@@ -1,7 +1,7 @@
 """
-Module of Credit mining function testing.
+Module of Credit mining policy class testing.
 
-Author(s): Mihai Capota, Ardhi Putra
+Author(s): Mihai Capota, Ardhi Putra, Bohao Zhang
 """
 
 import binascii
@@ -20,7 +20,8 @@ from Tribler.Core.CreditMining.credit_mining_util import levenshtein_dist, sourc
 from Tribler.Core.DownloadConfig import DefaultDownloadStartupConfig
 from Tribler.Core.Libtorrent.LibtorrentDownloadImpl import LibtorrentDownloadImpl
 from Tribler.Core.Utilities import utilities
-from Tribler.Test.Core.CreditMining.mock_creditmining import MockMeta, MockLtPeer, MockLtSession, MockLtTorrent, \
+from Tribler.Test.Core.CreditMining.mock_creditmining import MockTorrentDef, MockLtPeer, MockLtSession, MockLtTorrent, \
+from Tribler.Core.defaults import sessdefaults
     MockPeerId
 from Tribler.Test.Core.base_test import TriblerCoreTest
 from Tribler.dispersy.util import blocking_call_on_reactor_thread
@@ -35,14 +36,13 @@ class TestBoostingPolicy(TriblerCoreTest):
         super(TestBoostingPolicy, self).__init__(*argv, **kwargs)
         self.session = MockLtSession()
 
-
     @blocking_call_on_reactor_thread
     @inlineCallbacks
     def setUp(self, autoload_discovery=True):
         yield super(TestBoostingPolicy, self).setUp()
         self.torrents = dict()
         for i in xrange(1, 11):
-            mock_metainfo = MockMeta(str(i))
+            mock_metainfo = MockTorrentDef(str(i))
 
             self.torrents[str(i)] = {"metainfo": mock_metainfo, "num_seeders": i,
                                      "num_leechers": i-1, "creation_date": i, "peers": {}, "livepeers": {},
@@ -50,7 +50,6 @@ class TestBoostingPolicy(TriblerCoreTest):
             if i > 1:
                 self.torrents[str(i)]["peers"] = self.torrents[str(i-1)]["peers"]
                 self.torrents[str(i)]["peers"]["id"+str(i)] = {"speed": i%2*i}
-
 
     def test_base_policy(self):
         """
@@ -62,7 +61,6 @@ class TestBoostingPolicy(TriblerCoreTest):
                         "Base boosting policy returns a key, expecting None here.")
         self.assertFalse(policy.key_check(self.torrents["1"]),
                          "Base boosting policy suggests to boost a swarm, which is not expected.")
-
 
     def test_random_policy(self):
         """
@@ -81,7 +79,6 @@ class TestBoostingPolicy(TriblerCoreTest):
         ids_stop = [torrent["metainfo"].get_infohash() for torrent in torrents_stop]
         self.assertEqual(["1"], ids_stop, "Stop failed %s vs %s" % (ids_stop, torrents_stop))
 
-
     def test_creationdatepolicy(self):
         """
         test policy based on creation date
@@ -93,7 +90,6 @@ class TestBoostingPolicy(TriblerCoreTest):
         self.assertEqual(ids_start, ["10", "8", "6"])
         ids_stop = [torrent["metainfo"].get_infohash() for torrent in torrents_stop]
         self.assertEqual(ids_stop, ["5", "3", "1"])
-
 
     def test_seederratio_policy(self):
         """
@@ -107,7 +103,6 @@ class TestBoostingPolicy(TriblerCoreTest):
         ids_stop = [torrent["metainfo"].get_infohash() for torrent in torrents_stop]
         self.assertEqual(ids_stop, ["3", "1"])
 
-
     @skip("The random seed is not reliable")
     def test_fallback_policy(self):
         """
@@ -115,7 +110,7 @@ class TestBoostingPolicy(TriblerCoreTest):
         """
 
         for i in xrange(1, 11):
-            mock_metainfo = MockMeta(i)
+            mock_metainfo = MockTorrentDef(i)
             self.torrents[i] = {"metainfo": mock_metainfo, "num_seeders": -i,
                                 "num_leechers": -i, "creation_date": i}
 
@@ -128,12 +123,11 @@ class TestBoostingPolicy(TriblerCoreTest):
         ids_stop = [torrent["metainfo"].get_infohash() for torrent in torrents_stop]
         self.assertEqual(2, len(ids_stop), "Stop failed %s vs %s" % (ids_stop, torrents_stop))
 
-
     def test_scoring_policy(self):
         """
         testing scoring policy
-        TODO: not validated, not designed for this policy
         """
+        # TODO: not validated, not designed for this policy
         policy = ScoringPolicy(self.session)
         torrents_start, torrents_stop = policy.apply(self.torrents, 6)
         ids_start = [torrent["metainfo"].get_infohash() for torrent in
@@ -402,7 +396,7 @@ class TestBoostingManagerError(TriblerCoreTest):
         """
         torrent = {
             'preload': False,
-            'metainfo': MockMeta("1234"),
+            'metainfo': MockTorrentDef("1234"),
             'infohash': '12345',
             'name': 'fake_torrent'
         }
@@ -428,7 +422,7 @@ class TestBoostingManagerError(TriblerCoreTest):
         """
         torrent = {
             'preload': False,
-            'metainfo': MockMeta("1234")
+            'metainfo': MockTorrentDef("1234")
         }
         self.session.lm.boosting_manager.torrents[torrent['metainfo'].get_infohash()] = torrent
         self.session.lm.download_exists = lambda _: True
