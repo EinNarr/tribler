@@ -202,13 +202,12 @@ class ChannelSource(BoostingSource):
         def join_community():
             """
             find the community/channel id, then join
-            """
+            """#TODO can we find channel community?
             try:
                 self.community = dispersy.get_community(dispersy_cid, True)
                 self.register_task(str(self.source) + "_get_id", reactor.callLater(1, get_channel_id))
 
             except CommunityNotFoundException:
-
                 allchannelcommunity = None
                 for community in dispersy.get_communities():
                     if isinstance(community, AllChannelCommunity):
@@ -223,7 +222,7 @@ class ChannelSource(BoostingSource):
                 else:
                     self._logger.error("Could not find AllChannelCommunity")
 
-        def get_channel_id():
+        def get_channel_id():#TODO what is a channel ID
             """
             find channel id by looking at the network
             """
@@ -286,7 +285,7 @@ class ChannelSource(BoostingSource):
                     self.torrent_insert_callback(self.source, infohash, self.torrents[infohash])
                 self.database_updated = False
 
-        if len(self.unavail_torrent) and self.enabled:
+        if self.unavail_torrent and self.enabled:
             self._logger.debug("Unavailable #torrents : %d from %s", len(self.unavail_torrent), hexlify(self.source))
             for torrent in self.unavail_torrent.values():
                 self._load_torrent(torrent[2]).addCallback(showtorrent)
@@ -305,8 +304,8 @@ class ChannelSource(BoostingSource):
             self.unavail_torrent.update({t[2]: t for t in torrent_values if t[2] not in self.torrents})
 
             # Start the torrent channel checker in the first run
-            if not self.is_pending_task_active(hexlify(self.source) + "_checktor"):
-                task_call = self.register_task(hexlify(self.source) + "_checktor", LoopingCall(self._check_tor))
+            if not self.is_pending_task_active(str(self.source) + "_checktor"):
+                task_call = self.register_task(str(self.source) + "_checktor", LoopingCall(self._check_tor))
                 self._logger.debug("Registering check torrent function")
                 task_call.start(self.check_torrent_interval, now=True)
 
@@ -334,7 +333,7 @@ class ChannelSource(BoostingSource):
 
             if not self.session.has_collected_torrent(infohash):
                 if self.session.has_download(infohash):
-                    return
+                    return # will cause error elsewehre when this is returned, not sure if this is as expected
                 self.session.download_torrentfile(infohash, add_to_loaded, 0)
 
         deferred_load = self.loaded_torrent[infohash]

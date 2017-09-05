@@ -277,7 +277,7 @@ class BoostingManager(TaskManager):
 
         self.finish_pre_dl[infohash] = 0.0
 
-        def _check_swarm_peers(thandle, started_time):
+        def _check_swarm_peers(thandle, started_time):  #TODO(Bohao) maybe rename
             peers_info = thandle.get_peer_info()
 
             for p in peers_info:
@@ -287,7 +287,7 @@ class BoostingManager(TaskManager):
             status = thandle.status()
             elapsed_time = time.time() - started_time
 
-            # maximal waiting time : after 3600 seconds (1 hour)
+            # maximal waiting time : after 3600 seconds (1 hour)  #TODO(Bohao)maybe cancel task if finish_pre_dl?
             if elapsed_time > 3600 and not self.finish_pre_dl[infohash]:
                 self.cancel_pending_task("pre_download_%s" %hexlify(infohash))
                 if status.progress < 1.0:
@@ -322,7 +322,7 @@ class BoostingManager(TaskManager):
 
         torrent['peers'] = {}
 
-        if self.session.lm.load_download_pstate_noexc(infohash):
+        if self.session.lm.load_download_pstate_noexc(infohash):  #TODO(Bohao) is '_' there in the file name?
             torrent['predownload'] = "_" + hexlify(infohash) + '.state'
         else:
             torrent['predownload'] = self._pre_download_torrent(source, infohash, torrent)
@@ -380,8 +380,8 @@ class BoostingManager(TaskManager):
             new_seed = tdict['num_seeders']
             new_leecher = tdict['num_leechers']
 
-            if new_seed - self.torrents[tdict['infohash']]['num_seeders'] \
-                    or new_leecher - self.torrents[tdict['infohash']]['num_leechers']:
+            if new_seed <> self.torrents[tdict['infohash']]['num_seeders'] \
+                    or new_leecher <> self.torrents[tdict['infohash']]['num_leechers']:
                 self.torrents[tdict['infohash']]['num_seeders'] = new_seed
                 self.torrents[tdict['infohash']]['num_leechers'] = new_leecher
                 self._logger.info("infohash %s : seeder/leecher changed seed:%d leech:%d",
@@ -427,8 +427,13 @@ class BoostingManager(TaskManager):
             self._logger.error("Could not set archive mode for unknown source %s", source)
 
     def __bdl_callback(self, ds):
-        ihash_str = ds.get_download().tdef.get_infohash().encode('hex')
+        '''
+        #TODO(Bohao) function unknown, probably removing all seeding peers from peer list.
+        '''
+        ihash_str = ds.get_download().get_def().get_infohash().encode('hex')
 
+        #TODO(Bohao) see the question in get_peerlist. Does have work?
+        #TODO(Bohao) any possible that it don't have 'have'?
         peers = [x for x in ds.get_peerlist() if any(x['have']) and not
                  x['ip'].startswith("127.0.0")]
 
@@ -443,7 +448,6 @@ class BoostingManager(TaskManager):
             for peer in self.torrents[ihash]['livepeers']:
                 self.__insert_peer(ihash, peer['ip'], peer['port'], peer)
 
-
         return 1.0, True
 
     def start_download(self, infohash):
@@ -455,7 +459,7 @@ class BoostingManager(TaskManager):
         dscfg.set_safe_seeding(False)
         dscfg.dlconfig.set('downloadconfig', 'seeding_mode', 'forever')
 
-        if not infohash:
+        if not infohash in self.torrents:
             self._logger.error("None Infohash %s", infohash)
             return
 
@@ -469,7 +473,7 @@ class BoostingManager(TaskManager):
             return
 
         pstate = None
-        if type(torrent['predownload']) is not str:
+        if not isinstance(torrent['predownload'], str):
             self._logger.error("Still predownload %s. Pending start_download %s",
                                hexlify(torrent["metainfo"].get_infohash()), torrent['predownload'])
             torrent['predownload'].addCallback(self.start_download)
@@ -548,6 +552,11 @@ class BoostingManager(TaskManager):
         """
         Function to select which torrent in the torrent list will be downloaded in the
         next iteration. It depends on the source and applied policy
+        #TODO(Bohao) not qutie sure about the logic here.
+        If preloaded and not finished download -> do nothing
+        If preloaded and not started -> start download
+        If preloaded and finished download -> stop download and enter archive mode???
+        If not preloaded not duplicate and enabled, add it to the set need to be judged by policy
         """
         torrents = {}
         for infohash in list(self.torrents):
@@ -558,7 +567,7 @@ class BoostingManager(TaskManager):
                     self.start_download(infohash)
                 elif torrent['download'].get_status() == DLSTATUS_SEEDING:
                     self.stop_download(infohash, reason="archive mode")
-            elif not torrent.get('is_duplicate', False):
+            if not torrent.get('is_duplicate', False):#TODO(Bohao) Changed to if from elif, need to validate
                 if torrent.get('enabled', True):
                     torrents[infohash] = torrent
 
@@ -600,16 +609,14 @@ class BoostingManager(TaskManager):
             """
             for boosting_source in values:
                 boosting_source = validate_source_string(boosting_source)
-                if boosting_source not in self.boosting_sources.keys():
-                    self.add_source(boosting_source)
-                self.boosting_sources[boosting_source].enabled = enabled
+                self.set_enable_mining(boosting_source, mining_bool=enabled)
 
         # set policy
         self.settings.policy = self.session.config.get_credit_mining_policy(True)(self.session)
 
         for k in SAVED_ATTR:
             # see the session configuration
-            object.__setattr__(self.settings, k, getattr(self.session.config, "get_credit_mining_%s" % k)())
+            setattr(self.settings, k, getattr(self.session, "get_cm_%s" %k)())
 
         for k, val in self.session.config.get_credit_mining_sources().items():
             if k is "boosting_sources":
