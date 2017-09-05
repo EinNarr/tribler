@@ -19,7 +19,7 @@ class MockLtTorrent(object):
     def __init__(self, infohash="12345"):
         self.info_hash = infohash
         self.torrent_status = MockTorrentStatus(infohash)
-        
+
         # fake flag to record whether certain methods are called
         self.paused = False
         self.resume_data_saved = False
@@ -327,3 +327,13 @@ class MockTorrentStatus(object):
         self.all_time_upload = 0
         self.num_pieces = 0
         self.progress = 0
+
+class MockSearchCommunity(object):
+    """
+    Mock class of search community
+    """
+    def __init__(self):
+        self.nr_connections = 0
+
+    def get_nr_connections(self):
+        return self.nr_connections
