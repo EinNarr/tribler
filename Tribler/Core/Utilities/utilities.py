@@ -445,7 +445,7 @@ def translate_peers_into_health(peer_info_dicts):
         if p_info['uinterested']:
             interest_in_us += 1
         # progress per million
-        if p_info['completed'] >= 800000:
+        if p_info['completed'] >= 0.8:
             finished += 1
         else:
             unfinished_able_dl += 1 if not upload_only_b else 0
