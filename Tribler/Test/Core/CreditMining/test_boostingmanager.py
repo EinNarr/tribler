@@ -42,13 +42,13 @@ class TestBoostingManager(BaseTestChannel):
         self.set_boosting_settings()
 
         # cheating all dependency checks
-        self.session.get_libtorrent = lambda: True
-        self.session.get_torrent_checking = lambda: True
-        self.session.get_dispersy = lambda: True
-        self.session.get_torrent_store = lambda: True
-        self.session.get_enable_torrent_search = lambda: True
-        self.session.get_enable_channel_search = lambda: True
-        self.session.get_megacache = lambda: True
+        self.session.config.get_libtorrent_enabled = lambda: True
+        self.session.config.get_torrent_checking_enabled = lambda: True
+        self.session.config.get_dispersy_enabled = lambda: True
+        self.session.config.get_torrent_store_enabled = lambda: True
+        self.session.config.get_torrent_search_enabled = lambda: True
+        self.session.config.get_channel_search_enabled = lambda: True
+        self.session.config.get_megacache_enabled = lambda: True
 
         self.boosting_manager = BoostingManager(self.session, self.bsettings)
 
@@ -81,12 +81,12 @@ class TestBoostingManager(BaseTestChannel):
     def setUpPreSession(self):
         super(TestBoostingManager, self).setUpPreSession()
 
-        self.config.set_torrent_checking(True)
-        self.config.set_dispersy(True)
-        self.config.set_libtorrent(True)
+        self.config.set_torrent_checking_enabled(True)
+        self.config.set_dispersy_enabled(True)
+        self.config.set_libtorrent_enabled(True)
 
         # using dummy dispersy
-        self.config.set_dispersy(False)
+        self.config.set_dispersy_enabled(False)
 
     @blocking_call_on_reactor_thread
     @inlineCallbacks
@@ -598,11 +598,11 @@ class TestBoostingManager(BaseTestChannel):
         test for loading file configuration and applying it to boosting manager
         """
         # mock boosting policy
-        self.session.get_cm_policy = lambda _: lambda _: MockBoostingPolicy()
+        self.session.config.get_credit_mining_policy = lambda _: lambda _: MockBoostingPolicy()
 
         # mock session cm settings
         for k in SAVED_ATTR:
-            setattr(self.session, "get_cm_%s" %k, lambda: 'fakesettingvalue')
+            setattr(self.session.config, "get_credit_mining_%s" %k, lambda: 'fakesettingvalue')
 
         # mock boosting sources
         sources = dict()
@@ -611,7 +611,7 @@ class TestBoostingManager(BaseTestChannel):
         sources['boosting_disabled'] = ['fakechannel4', 'fakechannel2']
         sources['archive_sources'] = ['fakechannel1', 'fakechannel2']
 
-        self.session.get_cm_sources = lambda: sources
+        self.session.config.get_credit_mining_sources = lambda: sources
 
         # mock add_source()
         added_sources = list()
@@ -665,7 +665,7 @@ class TestBoostingManager(BaseTestChannel):
                 saved_config.append(key + string)
             return fake_set_value
         for k in SAVED_ATTR:
-            setattr(self.boosting_manager.session, "set_cm_%s" % k, fake_set_key(k))
+            setattr(self.boosting_manager.session.config, "set_credit_mining_%s" % k, fake_set_key(k))
             expected_config.append(k + str(getattr(self.bsettings, k)))
 
         # create fake sources
@@ -684,24 +684,22 @@ class TestBoostingManager(BaseTestChannel):
         expected_config.append("['fakechannel4', 'fakechannel2']boosting_disabled")
         expected_config.append("['fakechannel1', 'fakechannel2']archive_sources")
 
-        self.boosting_manager.session.set_cm_sources = fake_set_key('')
+        self.boosting_manager.session.config.set_credit_mining_sources = fake_set_key('')
 
-        # mock save_session_config
-        save_to_disk = list()
-
-        def fake_save_session_config():
-            save_to_disk.append(True)
-        self.boosting_manager.session.save_session_config = fake_save_session_config
+        # remove the configuration file on disk for testing
+        saved_config_file = os.path.join(self.boosting_manager.session.config.get_state_dir(), 'triblerd.conf')
+        if os.path.isfile(saved_config_file):
+            os.remove(saved_config_file)
 
         # start testing
         self.boosting_manager.save_config()
         self.assertEqual(saved_config, expected_config, 'Cannot save configurations.')
-        self.assertTrue(save_to_disk.pop(), 'Configuration is not saved to disk.')
+        self.assertTrue(os.path.isfile(saved_config_file), 'Configuration is not saved to disk.')
 
         # test OperationNotPossibleAtRuntimeException
         saved_config = list()
         expected_config = expected_config[1:]
-        setattr(self.boosting_manager.session, "set_cm_%s" % SAVED_ATTR[0],
+        setattr(self.boosting_manager.session.config, "set_credit_mining_%s" % SAVED_ATTR[0],
                 lambda _: OperationNotPossibleAtRuntimeException())
         self.boosting_manager.save_config()
         self.assertEqual(saved_config, expected_config, 'Cannot handle OperationNotPossibleAtRuntimeException.')

@@ -457,7 +457,7 @@ class BoostingManager(TaskManager):
         dscfg = DownloadStartupConfig()
         dscfg.set_dest_dir(self.settings.credit_mining_path)
         dscfg.set_safe_seeding(False)
-        dscfg.dlconfig.set('downloadconfig', 'seeding_mode', 'forever')
+        dscfg.dlconfig.set('download_defaults', 'seeding_mode', 'forever')
 
         if not infohash in self.torrents:
             self._logger.error("None Infohash %s", infohash)
@@ -616,7 +616,7 @@ class BoostingManager(TaskManager):
 
         for k in SAVED_ATTR:
             # see the session configuration
-            setattr(self.settings, k, getattr(self.session, "get_cm_%s" %k)())
+            setattr(self.settings, k, getattr(self.session.config, "get_credit_mining_%s" %k)())
 
         for k, val in self.session.config.get_credit_mining_sources().items():
             if k is "boosting_sources":
@@ -634,7 +634,7 @@ class BoostingManager(TaskManager):
         """
         for k in SAVED_ATTR:
             try:
-                getattr(self.session, "set_cm_%s" % k)(getattr(self.settings, k))
+                getattr(self.session.config, "set_credit_mining_%s" % k)(getattr(self.settings, k))
             except OperationNotPossibleAtRuntimeException:
                 # some of the attribute can't be changed in runtime. See lm.sessconfig_changed_callback
                 self._logger.debug("Cannot set attribute %s. Not permitted in runtime", k)

@@ -40,13 +40,13 @@ class TestBoostingSource(BaseTestChannel):
         self.set_boosting_settings()
 
         # cheating all dependency checks
-        self.session.get_libtorrent = lambda: True
-        self.session.get_torrent_checking = lambda: True
-        self.session.get_dispersy = lambda: True
-        self.session.get_torrent_store = lambda: True
-        self.session.get_enable_torrent_search = lambda: True
-        self.session.get_enable_channel_search = lambda: True
-        self.session.get_megacache = lambda: True
+        self.session.config.get_libtorrent_enabled = lambda: True
+        self.session.config.get_torrent_checking_enabled = lambda: True
+        self.session.config.get_dispersy_enabled = lambda: True
+        self.session.config.get_torrent_store_enabled = lambda: True
+        self.session.config.get_torrent_search_enabled = lambda: True
+        self.session.config.get_channel_search_enabled = lambda: True
+        self.session.config.get_megacache_enabled = lambda: True
 
         # self.bsettings = BoostingSettings(self.session)
         self.boosting_manager = BoostingManager(self.session, self.bsettings)
@@ -82,12 +82,12 @@ class TestBoostingSource(BaseTestChannel):
     def setUpPreSession(self):
         super(TestBoostingSource, self).setUpPreSession()
 
-        self.config.set_torrent_checking(True)
-        self.config.set_dispersy(True)
-        self.config.set_libtorrent(True)
+        self.config.set_torrent_checking_enabled(True)
+        self.config.set_dispersy_enabled(True)
+        self.config.set_libtorrent_enabled(True)
 
         # using dummy dispersy
-        self.config.set_dispersy(False)
+        self.config.set_dispersy_enabled(False)
 
     @blocking_call_on_reactor_thread
     @inlineCallbacks
@@ -309,7 +309,7 @@ class TestChannelSource(TestBoostingSource):
         unavail_torrent_copy = copy.deepcopy(self.boosting_source.unavail_torrent)
         
         # mock torrent database in launchManyCore, same as test_load_torrent
-        self.session.lm.torrent_store = LevelDbStore(self.session.get_torrent_store_dir())
+        self.session.lm.torrent_store = LevelDbStore(self.session.config.get_torrent_store_dir())
 
         self.session.lm.rtorrent_handler = RemoteTorrentHandler(self.session)
         self.session.lm.rtorrent_handler.initialize()
@@ -411,7 +411,7 @@ class TestChannelSource(TestBoostingSource):
         with TorrentDef object as parameter.
         """
         # mock torrent database in launchManyCore
-        self.session.lm.torrent_store = LevelDbStore(self.session.get_torrent_store_dir())
+        self.session.lm.torrent_store = LevelDbStore(self.session.config.get_torrent_store_dir())
 
         self.session.lm.rtorrent_handler = RemoteTorrentHandler(self.session)
         self.session.lm.rtorrent_handler.initialize()

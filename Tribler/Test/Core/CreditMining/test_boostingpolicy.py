@@ -7,7 +7,6 @@ Author(s): Mihai Capota, Ardhi Putra, Bohao Zhang
 import binascii
 import random
 import re
-from twisted.internet.defer import inlineCallbacks
 from unittest import skip
 
 from twisted.internet.defer import inlineCallbacks
@@ -21,8 +20,8 @@ from Tribler.Core.DownloadConfig import DefaultDownloadStartupConfig
 from Tribler.Core.Libtorrent.LibtorrentDownloadImpl import LibtorrentDownloadImpl
 from Tribler.Core.Utilities import utilities
 from Tribler.Test.Core.CreditMining.mock_creditmining import MockTorrentDef, MockLtPeer, MockLtSession, MockLtTorrent, \
-from Tribler.Core.defaults import sessdefaults
     MockPeerId
+
 from Tribler.Test.Core.base_test import TriblerCoreTest
 from Tribler.dispersy.util import blocking_call_on_reactor_thread
 

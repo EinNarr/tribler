@@ -118,8 +118,9 @@ share_mode_target = integer(default=3)
 tracker_interval = integer(default=200)
 logging_interval = integer(default=60)
 # By default we want to automatically boost legal-predetermined channels
-boosting_sources = string_list(default=list('http://bt.etree.org/rss/bt_etree_org.rdf'))
-boosting_enabled = string_list(default=list('http://bt.etree.org/rss/bt_etree_org.rdf'))
+# Legal-predetermined channel is removed for now as RSS feed is no longer supported
+boosting_sources = string_list(default=list())
+boosting_enabled = string_list(default=list())
 boosting_disabled = string_list(default=list())
 archive_sources = string_list(default=list())
 policy = string(default=seederratio)
