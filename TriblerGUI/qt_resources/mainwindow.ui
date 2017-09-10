@@ -6097,6 +6097,31 @@ color: white;</string>
                 </property>
                </widget>
               </item>
+              <item row="6" column="0">
+               <widget class="QLabel" name="credit_mining_settings_header">
+                <property name="styleSheet">
+                 <string notr="true">font-weight: bold;
+color: white;</string>
+                </property>
+                <property name="text">
+                 <string>Credit Mining Settings</string>
+                </property>
+               </widget>
+              </item>
+              <item row="7" column="0">
+               <widget class="QLabel" name="label_65">
+                <property name="text">
+                 <string>Enable credit mining?</string>
+                </property>
+               </widget>
+              </item>
+              <item row="7" column="1">
+               <widget class="QCheckBox" name="credit_mining_checkbox">
+                <property name="text">
+                 <string/>
+                </property>
+               </widget>
+              </item>
              </layout>
             </widget>
             <widget class="QWidget" name="settings_anonymity_tab">

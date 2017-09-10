@@ -88,6 +88,7 @@ class SettingsPage(QWidget):
         ind = self.window().seeding_ratio_combobox.findText(str(settings['download_defaults']['seeding_ratio']))
         if ind != -1:
             self.window().seeding_ratio_combobox.setCurrentIndex(ind)
+        self.window().credit_mining_checkbox.setChecked(settings['credit_mining']['enabled'])
 
         # Anonymity settings
         self.window().allow_exit_node_checkbox.setChecked(settings['tunnel_community']['exitnode_enabled'])
@@ -113,7 +114,7 @@ class SettingsPage(QWidget):
     def save_settings(self):
         # Create a dictionary with all available settings
         settings_data = {'general': {}, 'Tribler': {}, 'download_defaults': {}, 'libtorrent': {}, 'watch_folder': {},
-                         'tunnel_community': {}, 'trustchain': {}}
+                         'tunnel_community': {}, 'trustchain': {}, 'credit_mining': {}}
         settings_data['general']['family_filter'] = self.window().family_filter_checkbox.isChecked()
         settings_data['download_defaults']['saveas'] = self.window().download_location_input.text()
 
@@ -171,6 +172,8 @@ class SettingsPage(QWidget):
             ConfirmationDialog.show_error(self.window(), "Invalid seeding time",
                                           "You've entered an invalid format for the seeding time (expected HH:MM)")
             return
+
+        settings_data['credit_mining']['enabled'] = self.window().credit_mining_checkbox.isChecked()
 
         settings_data['trustchain']['enabled'] = self.window().trustchain_enabled_checkbox.isChecked()
         settings_data['tunnel_community']['exitnode_enabled'] = self.window().allow_exit_node_checkbox.isChecked()
