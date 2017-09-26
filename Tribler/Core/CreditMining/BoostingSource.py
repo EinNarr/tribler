@@ -48,6 +48,7 @@ class BoostingSource(TaskManager):
         self.min_channels = boost_settings.min_channels_start
 
         self._logger = logging.getLogger(BoostingSource.__name__)
+        self._logger.setLevel(1)
 
         self.boosting_manager = self.session.lm.boosting_manager
 
@@ -154,7 +155,7 @@ class BoostingSource(TaskManager):
                     # also remove from boostingmanager
                     self.session.lm.boosting_manager.torrents.pop(infohash)
 
-                self._logger.debug("Removed torrent %s from %s because of timeout", hexlify(infohash), self.source)
+                self._logger.debug("Removed torrent %s from %s because of timeout", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash), self.source)
 
                 # remove from this source so it can make space
                 self.torrents.pop(infohash)
@@ -165,7 +166,7 @@ class BoostingSource(TaskManager):
         # recover blacklisted torrent
         for infohash in list(self.blacklist_torrent):
             if time.time() - self.blacklist_torrent[infohash] > self.recovery_blacklist_torrent:
-                self._logger.debug("Recover blacklisted torrent %s", hexlify(infohash))
+                self._logger.debug("Recover blacklisted torrent %s", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
                 self.blacklist_torrent.pop(infohash)
 
 
@@ -176,6 +177,7 @@ class ChannelSource(BoostingSource):
     def __init__(self, session, dispersy_cid, boost_settings, torrent_insert_cb):
         BoostingSource.__init__(self, session, dispersy_cid, boost_settings, torrent_insert_cb)
 
+        self.channel_name = None
         self.channel_id = None
 
         self.channel_dict = None
@@ -228,6 +230,8 @@ class ChannelSource(BoostingSource):
             """
             if self.community and self.community._channel_id:
                 self.channel_id = self.community._channel_id
+                if self.community._channel_name:
+                    self.channel_name = self.community._channel_name
 
                 self.channel_dict = self.channelcast_db.getChannel(self.channel_id)
                 task_call = self.register_task(str(self.source) + "_update",
@@ -255,16 +259,16 @@ class ChannelSource(BoostingSource):
             infohash = torrent.infohash
             if torrent.get_files() and infohash in self.unavail_torrent:
                 if len(self.torrents) >= self.max_torrents:
-                    self._logger.debug("Max torrents in source reached. Not adding %s", torrent.infohash)
-                    del self.unavail_torrent[torrent.infohash]
+                    self._logger.debug("Max torrents in source reached. Not adding %s", self.torrents[infohash]['name'] if infohash in self.torrents else infohash)
+                    del self.unavail_torrent[infohash]
                     return
 
-                if torrent.infohash in self.blacklist_torrent:
-                    self._logger.debug("Torrents blacklisted. Not adding %s", hexlify(torrent.infohash))
-                    del self.unavail_torrent[torrent.infohash]
+                if infohash in self.blacklist_torrent:
+                    self._logger.debug("Torrents blacklisted. Not adding %s", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
+                    del self.unavail_torrent[infohash]
                     return
 
-                self._logger.debug("[ChannelSource] Got torrent %s", hexlify(infohash))
+                self._logger.debug("[ChannelSource] Got torrent %s", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
                 self.torrents[infohash] = {}
                 self.torrents[infohash]['name'] = torrent.get_name()
                 self.torrents[infohash]['metainfo'] = torrent
@@ -286,7 +290,7 @@ class ChannelSource(BoostingSource):
                 self.database_updated = False
 
         if self.unavail_torrent and self.enabled:
-            self._logger.debug("Unavailable #torrents : %d from %s", len(self.unavail_torrent), hexlify(self.source))
+            self._logger.debug("Unavailable #torrents : %d from %s", len(self.unavail_torrent), self.channel_name)
             for torrent in self.unavail_torrent.values():
                 self._load_torrent(torrent[2]).addCallback(showtorrent)
 

@@ -76,8 +76,11 @@ class BoostingManager(TaskManager):
     def __init__(self, session, settings=None):
         super(BoostingManager, self).__init__()
         self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger.setLevel(1)
 
         BoostingManager.__single = self
+        self.channel_list = []
+        self.channel_dict = {}
         self.boosting_sources = {}
         self.torrents = {}
 
@@ -99,6 +102,8 @@ class BoostingManager(TaskManager):
 
         self.torrent_db = self.session.open_dbhandler(NTFY_TORRENTS)
         self.channelcast_db = self.session.open_dbhandler(NTFY_CHANNELCAST)
+
+        self.dummy_channel_select_agent()
 
         if self.settings.load_config:
             self.load_config()
@@ -168,7 +173,7 @@ class BoostingManager(TaskManager):
 
         self.boosting_sources[string_to_source(source)].enabled = mining_bool
 
-        self._logger.info("Set mining source %s %s", source, mining_bool)
+        self._logger.info("Set mining source %s %s", self.channel_dict[source]['name'], mining_bool)
 
         if force_restart:
             self._select_torrent()
@@ -189,9 +194,9 @@ class BoostingManager(TaskManager):
             if self.settings.auto_start_source:
                 self.boosting_sources[source].start()
 
-            self._logger.info("Added source %s", source_to_string(source))
+            self._logger.info("Added source %s", self.channel_dict[source]['name'])
         else:
-            self._logger.info("Already have source %s", source_to_string(source))
+            self._logger.info("Already have source %s", self.channel_dict[source]['name'])
 
     def remove_source(self, source_key):
         """
@@ -200,7 +205,7 @@ class BoostingManager(TaskManager):
         if source_key in self.boosting_sources:
             source = self.boosting_sources.pop(source_key)
             source.kill_tasks()
-            self._logger.info("Removed source %s", source_to_string(source_key))
+            self._logger.info("Removed source %s", self.channel_dict[source]['name'])
 
             rm_torrents = [torrent for _, torrent in self.torrents.items()
                            if torrent['source'] == source_to_string(source_key)]
@@ -259,7 +264,7 @@ class BoostingManager(TaskManager):
         metainfo = tdef.get_metainfo()
         torrentinfo = lt.torrent_info(metainfo)
 
-        self._logger.info("%s start pre-downloading", hexlify(infohash))
+        self._logger.info("%s start pre-downloading", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
 
         thandle = self.pre_session.add_torrent({'ti': torrentinfo, 'save_path': self.settings.credit_mining_path,
                                                 'flags': lt.add_torrent_params_flags_t.flag_paused})
@@ -318,7 +323,9 @@ class BoostingManager(TaskManager):
         """
 
         # Remember where we got this torrent from
-        self._logger.debug("remember torrent %s from %s", torrent['name'], source_to_string(source))
+        self._logger.debug("remember torrent %s from %s", torrent['name'], self.channel_dict[source]['name'])
+
+        #self.channelcast_db.getChannel(source)[2]  
 
         torrent['peers'] = {}
 
@@ -368,7 +375,7 @@ class BoostingManager(TaskManager):
         if infohash not in self.torrents:
             return
 
-        self._logger.debug("infohash %s %s %s updated", subject, change_type, hexlify(infohash))
+        self._logger.debug("infohash %s %s %s updated", subject, change_type, self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
 
         tdict = self.torrent_db.getTorrent(infohash, keys=['C.torrent_id', 'infohash', 'name',
                                                            'length', 'category', 'status', 'num_seeders',
@@ -411,7 +418,7 @@ class BoostingManager(TaskManager):
                 self.torrents[infohash]['num_leechers'] = num_leech
 
             self._logger.debug("Seeder/leecher data %s translated from peers : seeder %s, leecher %s",
-                               hexlify(infohash), num_seed, num_leech)
+                               self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash), num_seed, num_leech)
 
             # check health(seeder/leecher)
             self.session.lm.torrent_checker.add_gui_request(infohash)
@@ -422,7 +429,7 @@ class BoostingManager(TaskManager):
         """
         if source in self.boosting_sources:
             self.boosting_sources[source].archive = enable
-            self._logger.info("Set archive mode for %s to %s", source, enable)
+            self._logger.info("Set archive mode for %s to %s", self.channel_dict[source]['name'], enable)
         else:
             self._logger.error("Could not set archive mode for unknown source %s", source)
 
@@ -469,13 +476,13 @@ class BoostingManager(TaskManager):
 
         if self.session.lm.download_exists(torrent["metainfo"].get_infohash()):
             self._logger.error("Already downloading %s. Cancel start_download",
-                               hexlify(torrent["metainfo"].get_infohash()))
+                               self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(torrent["metainfo"].get_infohash()))
             return
 
         pstate = None
         if not isinstance(torrent['predownload'], str):
             self._logger.error("Still predownload %s. Pending start_download %s",
-                               hexlify(torrent["metainfo"].get_infohash()), torrent['predownload'])
+                               self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(torrent["metainfo"].get_infohash()), torrent['predownload'])
             torrent['predownload'].addCallback(self.start_download)
 
             return
@@ -492,7 +499,7 @@ class BoostingManager(TaskManager):
             os.remove(os.path.join(self.session.get_downloads_pstate_dir(), torrent['predownload']))
 
         self._logger.info("Starting %s preload %s",
-                          hexlify(torrent["metainfo"].get_infohash()), preload)
+                          self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(torrent["metainfo"].get_infohash()), preload)
 
         torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=pstate, hidden=True,
                                                   share_mode=not preload, checkpoint_disabled=True)
@@ -513,30 +520,29 @@ class BoostingManager(TaskManager):
         Stopping torrent that currently downloading
         """
         torrent = self.torrents[infohash]
-        infohash = hexlify(infohash)
 
-        self._logger.info("Stopping %s, reason : %s", str(infohash), reason)
+        self._logger.info("Stopping %s, reason : %s", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash), reason)
         download = torrent.get('download', None)
         if download:
             handle = download.handle
             if not handle.is_valid():
-                self._logger.error("Handle %s is not valid", str(infohash))
+                self._logger.error("Handle %s is not valid", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
             if not handle.has_metadata():
-                self._logger.error("Metadata %s is not valid", str(infohash))
+                self._logger.error("Metadata %s is not valid", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
             handle.pause()
 
-            self._logger.info("Writing resume data for %s", str(infohash))
+            self._logger.info("Writing resume data for %s", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
             deferred_resume = download.save_resume_data()
 
             def _remove_download(resume_data, remove_torrent_par):
                 infohash_bin = resume_data['info-hash']
-                self._logger.info("[CALLBACK] Stopping download %s", hexlify(infohash_bin))
+                self._logger.info("[CALLBACK] Stopping download %s", self.torrents[infohash_bin]['name'] if infohash_bin in self.torrents else hexlify(infohash_bin))
 
                 if infohash_bin in self.torrents:
                     _torrent = self.torrents[infohash_bin]
                     _download = _torrent.pop('download', False)
                 else:
-                    self._logger.error("Can't find torrents in callback %s:%s", hexlify(infohash_bin),
+                    self._logger.error("Can't find torrents in callback %s:%s", self.torrents[infohash_bin]['name'] if infohash_bin in self.torrents else hexlify(infohash_bin),
                                        [hexlify(a) for a in self.torrents.keys()])
                     _download = None
 
@@ -558,6 +564,8 @@ class BoostingManager(TaskManager):
         If preloaded and finished download -> stop download and enter archive mode???
         If not preloaded not duplicate and enabled, add it to the set need to be judged by policy
         """
+        self.dummy_channel_select_agent()
+
         torrents = {}
         for infohash in list(self.torrents):
             torrent = self.torrents.get(infohash)
@@ -672,7 +680,7 @@ class BoostingManager(TaskManager):
             status = lt_torrent.status()
 
             if unhexlify(str(status.info_hash)) in self.torrents:
-                self._logger.debug("Status for %s : %s %s | ul_lim : %d, max_ul %d, maxcon %d", status.info_hash,
+                self._logger.debug("Status for %s : %s %s | ul_lim : %d, max_ul %d, maxcon %d", self.torrents[status.info_hash]['name'] if status.info_hash in self.torrents else status.info_hash,
                                    status.all_time_download, status.all_time_upload, lt_torrent.upload_limit(),
                                    lt_torrent.max_uploads(), lt_torrent.max_connections())
 
@@ -706,7 +714,7 @@ class BoostingManager(TaskManager):
 
             if status.all_time_download != tor['time']['all_download']\
                     or status.all_time_upload != tor['time']['all_upload']:
-                self._logger.debug("Update last activity for %s : %s", hexlify(ihash), time.time())
+                self._logger.debug("Update last activity for %s : %s", self.torrents[status.info_hash]['name'] if status.info_hash in self.torrents else status.info_hash, time.time())
                 tor['time']['last_activity'] = time.time()
 
                 tor['time']['all_download'] = status.all_time_download
@@ -726,3 +734,28 @@ class BoostingManager(TaskManager):
                 self.torrents[torrent_infohash_str]['last_seeding_stats'] = seeding_stats
         else:
             self.torrents[torrent_infohash_str]['last_seeding_stats'] = seeding_stats
+
+    def dummy_channel_select_agent(self):
+
+        for channel in self.channelcast_db.getAllChannels():
+            channel_dict = {"id": channel[0], "dispersy_cid": channel[1], "name": channel[2], "description": channel[3], "votes": channel[5], "torrents": channel[4], "spam": channel[6], "modified": channel[8], "subscribed": (channel[7] == 2)}
+            self.channel_list.append(channel_dict)
+            self.channel_dict[channel[1]] = channel_dict
+        self.channel_list.sort(key=lambda x: x['torrents'], reverse=True)
+
+        channel_update = map(lambda x: x["dispersy_cid"], self.channel_list)
+        for i in range(1, 4):
+            while(len(channel_update)>i and channel_update[i] == channel_update[i-1]):
+                del channel_update[i]
+        if len(channel_update) > 4:
+            channel_update = channel_update[0: 4]
+
+        for source in self.boosting_sources:
+            if not source in channel_update and self.boosting_sources[source].enabled:
+                self.set_enable_mining(source, False)
+
+        for source in channel_update:
+            if not source in self.boosting_sources:
+                self.add_source(source)
+            elif not self.boosting_sources[source].enabled:
+                self.set_enable_mining(source, True)

@@ -289,6 +289,13 @@ class TriblerLaunchMany(TaskManager):
         self._logger.info("tribler: communities are ready in %.2f seconds", timemod.time() - now_time)
 
     def init(self):
+        for handler in logging.root.handlers:
+            f = logging.Filter()
+            f.filter = lambda x: logging.Filter('BoostingManager').filter(x) or logging.Filter('BoostingSource').filter(x)
+            handler.addFilter(f)
+            handler.setLevel(1)
+
+        logging.getLogger('BoostingManager').setLevel(0)
         if self.dispersy:
             from Tribler.dispersy.community import HardKilledCommunity
 
