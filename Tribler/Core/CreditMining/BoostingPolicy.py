@@ -11,6 +11,8 @@ from binascii import hexlify
 
 import operator
 
+from Tribler.Core.simpledefs import DLSTATUS_DOWNLOADING, DLSTATUS_SEEDING
+
 
 class BoostingPolicy(object):
     """
@@ -23,6 +25,7 @@ class BoostingPolicy(object):
         self.reverse = None
 
         self._logger = logging.getLogger("BoostingPolicy")
+        self._logger.setLevel(1)
 
     def apply(self, torrents, max_active):
         """
@@ -33,14 +36,19 @@ class BoostingPolicy(object):
                                  key=self.key, reverse=self.reverse)
 
         torrents_start = []
-        for torrent in sorted_torrents[:max_active]:
-            if not self.session.get_download(torrent["metainfo"].get_infohash()):
-                torrents_start.append(torrent)
         torrents_stop = []
-        for torrent in sorted_torrents[max_active:]:
-            if self.session.get_download(torrent["metainfo"].get_infohash()):
-                torrents_stop.append(torrent)
-
+        if max_active < len(sorted_torrents):
+            for torrent in sorted_torrents[:max_active]:
+                dl_impl = self.session.get_download(torrent["metainfo"].get_infohash())
+                if not dl_impl or (dl_impl.get_status() == 5 or dl_impl.get_status() == 6):
+                    torrents_start.append(torrent)
+            for torrent in sorted_torrents[max_active:]:
+                if self.session.get_download(torrent["metainfo"].get_infohash()):
+                    torrents_stop.append(torrent)
+        else:
+            for torrent in sorted_torrents:
+                if not self.session.get_download(torrent["metainfo"].get_infohash()):
+                    torrents_start.append(torrent)
         return torrents_start, torrents_stop
 
     def key(self, key):
@@ -181,3 +189,55 @@ class ScoringPolicy(SeederRatioPolicy):
             self._logger.debug("Score %s : %f", hexlify(ihash), score)
 
         return torrents_start, torrents_stop
+
+
+class JohanPolicy(BoostingPolicy):  # can be optimized. key_check is the worst for this policy
+    def __init__(self, session):
+        BoostingPolicy.__init__(self, session)
+        self.reverse = False
+        self.reserve_num = 5
+        self.upload_last = {}  # total upload in torrent_status at the end of last interval.
+
+    def apply(self, torrents, max_active):
+        torrents_start = []
+        torrents_stop = []
+
+        infohash_start = []
+
+        for _ in range(0, self.reserve_num):
+            infohash = random.choice(list(torrents))
+            torrent = self.session.get_download(infohash)
+            if not torrent or not (torrent.get_status() == DLSTATUS_DOWNLOADING or torrent.get_status() == DLSTATUS_SEEDING):
+                torrents_start.append(torrents[infohash])
+                infohash_start.append(infohash)
+
+        sorted_torrents = sorted([torrent for torrent in torrents.itervalues()
+                                  if self.key_check(torrent)],
+                                 key=self.key, reverse=self.reverse)
+        if max_active < len(sorted_torrents):
+            for torrent in sorted_torrents[max_active*8/10:]:
+                infohash = torrent["metainfo"].get_infohash()
+                if self.session.get_download(infohash) and infohash not in infohash_start:
+                    torrents_stop.append(torrent)
+
+        for torrent in torrents.itervalues():
+            infohash = torrent['metainfo'].get_infohash()
+            torrent_impl = self.session.get_download(infohash)
+            if torrent_impl:
+                self.upload_last[infohash] = torrent_impl.get_total_upload()
+
+        return torrents_start, torrents_stop
+
+    def key(self, key):
+        infohash = key['metainfo'].get_infohash()
+        torrent = self.session.get_download(infohash)
+        if not torrent:
+            return 0
+        if infohash not in self.upload_last:
+            return torrent.get_total_upload()
+        return torrent.get_total_upload() - self.upload_last[infohash]
+
+    def key_check(self, key):
+        infohash = key['metainfo'].get_infohash()
+        torrent = self.session.get_download(infohash)
+        return torrent and (torrent.get_status() == DLSTATUS_DOWNLOADING or torrent.get_status() == DLSTATUS_SEEDING)

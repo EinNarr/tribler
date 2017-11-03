@@ -11,7 +11,7 @@ from configobj import ConfigObj
 from validate import Validator
 
 from Tribler.Core.CreditMining.BoostingPolicy import CreationDatePolicy
-from Tribler.Core.CreditMining.BoostingPolicy import RandomPolicy, SeederRatioPolicy
+from Tribler.Core.CreditMining.BoostingPolicy import RandomPolicy, SeederRatioPolicy, JohanPolicy
 from Tribler.Core.Utilities.network_utils import get_random_port
 from Tribler.Core.exceptions import InvalidConfigException
 from Tribler.Core.osutils import get_appstate_dir, is_android
@@ -724,7 +724,8 @@ class TriblerConfig(object):
             switch_policy = {
                 "random": RandomPolicy,
                 "creation": CreationDatePolicy,
-                "seederratio": SeederRatioPolicy
+                "seederratio": SeederRatioPolicy,
+                "johan": JohanPolicy
             }
 
             return switch_policy[policy_str]

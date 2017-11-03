@@ -851,7 +851,9 @@ class LibtorrentDownloadImpl(DownloadConfigInterface, TaskManager):
         Save the resume data of a download. This method returns a deferred that fires when the resume data is available.
         Note that this method only calls save_resume_data once on subsequent calls.
         """
+        print self.deferreds_resume
         if not self.deferreds_resume:
+            print 333333333333
             self.get_handle().addCallback(lambda handle: handle.save_resume_data())
 
         defer_resume = Deferred()
@@ -1249,6 +1251,13 @@ class LibtorrentDownloadImpl(DownloadConfigInterface, TaskManager):
     def set_share_mode(self, share_mode):
         self.get_handle().addCallback(lambda handle: handle.set_share_mode(share_mode))
 
+    @checkHandleAndSynchronize()
+    def get_total_upload(self):
+        if not isinstance(self.tdef, TorrentDefNoMetainfo):
+            status = self.handle.status()
+            if hasattr(status, 'total_upload'):
+                return status.total_upload
+            return self.handle.total_upload()
 
 class LibtorrentStatisticsResponse:
 

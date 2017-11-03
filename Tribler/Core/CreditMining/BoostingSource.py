@@ -337,9 +337,12 @@ class ChannelSource(BoostingSource):
 
             if not self.session.has_collected_torrent(infohash):
                 if self.session.has_download(infohash):
-                    return # will cause error elsewehre when this is returned, not sure if this is as expected
+                    print "downloaded:"+hexlify(infohash)
+                    return self.loaded_torrent[infohash].call# will cause error elsewehre when this is returned, not sure if this is as expected
                 self.session.download_torrentfile(infohash, add_to_loaded, 0)
+                print "start download:"+hexlify(infohash)
+            else:
+                print "have collected:"+hexlify(infohash)
+                add_to_loaded(hexlify(infohash))
 
-        deferred_load = self.loaded_torrent[infohash]
-
-        return deferred_load
+        return self.loaded_torrent[infohash]

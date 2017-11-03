@@ -16,7 +16,7 @@ import libtorrent as lt
 from twisted.internet import defer
 from twisted.internet.task import LoopingCall
 
-from Tribler.Core.CreditMining.BoostingPolicy import SeederRatioPolicy
+from Tribler.Core.CreditMining.BoostingPolicy import RandomPolicy
 from Tribler.Core.CreditMining.BoostingSource import ChannelSource
 from Tribler.Core.CreditMining.credit_mining_util import source_to_string, string_to_source, compare_torrents, \
     validate_source_string
@@ -34,9 +34,9 @@ class BoostingSettings(object):
     """
     This class contains settings used by the boosting manager
     """
-    def __init__(self, policy=SeederRatioPolicy, load_config=True):
+    def __init__(self, policy=RandomPolicy, load_config=True):
         # Configurable parameter (changeable in runtime -plus sources-)
-        self.max_torrents_active = 20
+        self.max_torrents_active = 2#20
         self.max_torrents_per_source = 10
         self.source_interval = 100
         self.swarm_interval = 100
@@ -89,7 +89,7 @@ class BoostingManager(TaskManager):
         self.finish_pre_dl = {}
 
         # use provided settings or a default one
-        self.settings = settings or BoostingSettings(policy=SeederRatioPolicy(session), load_config=True)
+        self.settings = settings or BoostingSettings(policy=RandomPolicy(session), load_config=True)
 
         if self.settings.check_dependencies:
             assert self.session.config.get_libtorrent_enabled()
@@ -121,8 +121,8 @@ class BoostingManager(TaskManager):
         self.register_task("CreditMining_select", LoopingCall(self._select_torrent),
                            self.settings.initial_swarm_interval, interval=self.settings.swarm_interval)
 
-        self.register_task("CreditMining_scrape", LoopingCall(self.scrape_trackers),
-                           self.settings.initial_tracker_interval, interval=self.settings.tracker_interval)
+        # self.register_task("CreditMining_scrape", LoopingCall(self.scrape_trackers),
+        #                    self.settings.initial_tracker_interval, interval=self.settings.tracker_interval)
 
         self.register_task("CreditMining_log", LoopingCall(self.log_statistics),
                            self.settings.initial_logging_interval, interval=self.settings.logging_interval)
@@ -152,13 +152,13 @@ class BoostingManager(TaskManager):
         for f in glob.glob(self.session.get_downloads_pstate_dir()+"/_*.state"):
             os.remove(f)
 
-    def get_source_object(self, sourcekey):
+    def get_source_object(self, sourcekey):#never be called yet
         """
         Get the actual object of the source key
         """
         return self.boosting_sources.get(sourcekey, None)
 
-    def set_enable_mining(self, source, mining_bool=True, force_restart=False):
+    def set_enable_mining(self, source, mining_bool=True, force_restart=False):#called once when loading config, to be called by the interface
         """
         Dynamically enable/disable mining source.
         """
@@ -178,7 +178,7 @@ class BoostingManager(TaskManager):
         if force_restart:
             self._select_torrent()
 
-    def add_source(self, source):
+    def add_source(self, source):#called once when loading config, to be called by the interface
         """
         add new source into the boosting manager
         """
@@ -198,7 +198,7 @@ class BoostingManager(TaskManager):
         else:
             self._logger.info("Already have source %s", self.channel_dict[source]['name'])
 
-    def remove_source(self, source_key):
+    def remove_source(self, source_key):#called once when loading config, to be called by the interface
         """
         remove source by stop the downloading and remove its metainfo for all its swarms
         """
@@ -293,7 +293,7 @@ class BoostingManager(TaskManager):
             elapsed_time = time.time() - started_time
 
             # maximal waiting time : after 3600 seconds (1 hour)  #TODO(Bohao)maybe cancel task if finish_pre_dl?
-            if elapsed_time > 3600 and not self.finish_pre_dl[infohash]:
+            if elapsed_time > 60 and not self.finish_pre_dl[infohash]:
                 self.cancel_pending_task("pre_download_%s" %hexlify(infohash))
                 if status.progress < 1.0:
                     self._logger.warn("%s timeout pre-downloading with %f", hexlify(infohash), status.progress)
@@ -324,8 +324,6 @@ class BoostingManager(TaskManager):
 
         # Remember where we got this torrent from
         self._logger.debug("remember torrent %s from %s", torrent['name'], self.channel_dict[source]['name'])
-
-        #self.channelcast_db.getChannel(source)[2]  
 
         torrent['peers'] = {}
 
@@ -475,8 +473,9 @@ class BoostingManager(TaskManager):
         preload = torrent.get('preload', False)
 
         if self.session.lm.download_exists(torrent["metainfo"].get_infohash()):
-            self._logger.error("Already downloading %s. Cancel start_download",
+            self._logger.debug("Download already exists. Restarting %s",
                                self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(torrent["metainfo"].get_infohash()))
+            self.session.get_download(torrent["metainfo"].get_infohash()).restart()
             return
 
         pstate = None
@@ -736,26 +735,30 @@ class BoostingManager(TaskManager):
             self.torrents[torrent_infohash_str]['last_seeding_stats'] = seeding_stats
 
     def dummy_channel_select_agent(self):
-
         for channel in self.channelcast_db.getAllChannels():
             channel_dict = {"id": channel[0], "dispersy_cid": channel[1], "name": channel[2], "description": channel[3], "votes": channel[5], "torrents": channel[4], "spam": channel[6], "modified": channel[8], "subscribed": (channel[7] == 2)}
             self.channel_list.append(channel_dict)
             self.channel_dict[channel[1]] = channel_dict
         self.channel_list.sort(key=lambda x: x['torrents'], reverse=True)
 
-        channel_update = map(lambda x: x["dispersy_cid"], self.channel_list)
-        for i in range(1, 4):
-            while(len(channel_update)>i and channel_update[i] == channel_update[i-1]):
-                del channel_update[i]
-        if len(channel_update) > 4:
-            channel_update = channel_update[0: 4]
+        try:
+            self.add_source(unhexlify("f69db82a1123927c9afa489216cc3d2a799e597d"))
+        except:
+            pass
 
-        for source in self.boosting_sources:
-            if not source in channel_update and self.boosting_sources[source].enabled:
-                self.set_enable_mining(source, False)
+        # channel_update = map(lambda x: x["dispersy_cid"], self.channel_list)
+        # for i in range(1, 4):
+        #     while(len(channel_update)>i and channel_update[i] == channel_update[i-1]):
+        #         del channel_update[i]
+        # if len(channel_update) > 4:
+        #     channel_update = channel_update[0: 4]
 
-        for source in channel_update:
-            if not source in self.boosting_sources:
-                self.add_source(source)
-            elif not self.boosting_sources[source].enabled:
-                self.set_enable_mining(source, True)
+        # for source in self.boosting_sources:
+        #     if not source in channel_update and self.boosting_sources[source].enabled:
+        #         self.set_enable_mining(source, False)
+
+        # for source in channel_update:
+        #     if not source in self.boosting_sources:
+        #         self.add_source(source)
+        #     elif not self.boosting_sources[source].enabled:
+        #         self.set_enable_mining(source, True)
