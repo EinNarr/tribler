@@ -8,6 +8,11 @@ import logging
 import os
 import shutil
 import random
+
+import psutil
+
+import csv
+
 from binascii import hexlify, unhexlify
 
 import time
@@ -88,6 +93,19 @@ class BoostingManager(TaskManager):
 
         self.finish_pre_dl = {}
 
+        #######################################
+        # For test purpose
+        self.timestamp = 0
+        
+        fields = ["timestamp", "up_speed", "down_speed", "up_total", "down_total",
+                  "up_speed_payload", "down_speed_payload", "up_total_payload", "down_total_payload",
+                  "cpu_percent", "rss", "pss", "swap", "memory_percent"]
+
+        with open(os.path.join(self.session.config.get_state_dir(), "test_data.csv"), 'a') as t:
+            writer = csv.writer(t)
+            writer.writerow(fields)
+        #######################################
+
         # use provided settings or a default one
         self.settings = settings or BoostingSettings(policy=RandomPolicy(session), load_config=True)
 
@@ -113,8 +131,9 @@ class BoostingManager(TaskManager):
 
         self.pre_session = self.session.lm.ltmgr.create_session()
 
-        self.session.lm.ltmgr.get_session().set_settings(
-            {'share_mode_target': self.settings.share_mode_target})
+        settings = self.session.lm.ltmgr.get_session().get_settings()
+        settings['share_mode_target'] = self.settings.share_mode_target
+        self.session.lm.ltmgr.get_session().set_settings(settings)
 
         self.session.add_observer(self.on_torrent_notify, NTFY_TORRENTS, [NTFY_UPDATE])
 
@@ -124,8 +143,8 @@ class BoostingManager(TaskManager):
         # self.register_task("CreditMining_scrape", LoopingCall(self.scrape_trackers),
         #                    self.settings.initial_tracker_interval, interval=self.settings.tracker_interval)
 
-        self.register_task("CreditMining_log", LoopingCall(self.log_statistics),
-                           self.settings.initial_logging_interval, interval=self.settings.logging_interval)
+        # self.register_task("CreditMining_log", LoopingCall(self.log_statistics),
+        #                    self.settings.initial_logging_interval, interval=self.settings.logging_interval)
 
         self.register_task("CreditMining_checktime", LoopingCall(self.check_time),
                            self.settings.time_check_interval, interval=self.settings.time_check_interval)
@@ -252,7 +271,10 @@ class BoostingManager(TaskManager):
                     file_.write(str(a.resume_data))
 
                 # call the callback to start boosting on this torrent
-                self.torrents[a.resume_data['info-hash']]['predownload'].callback(a.handle)
+
+                # debug attempt
+                if not isinstance(self.torrents[a.resume_data['info-hash']]['predownload'], str):
+                    self.torrents[a.resume_data['info-hash']]['predownload'].callback(a.handle)
 
     def _pre_download_torrent(self, source, infohash, torrent):
         """
@@ -501,7 +523,7 @@ class BoostingManager(TaskManager):
                           self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(torrent["metainfo"].get_infohash()), preload)
 
         torrent['download'] = self.session.lm.add(torrent['metainfo'], dscfg, pstate=pstate, hidden=True,
-                                                  share_mode=not preload, checkpoint_disabled=True)
+                                                  share_mode=False, checkpoint_disabled=True)
         torrent['download'].set_priority(torrent.get('prio', 1))
         torrent['download'].set_state_callback(self.__bdl_callback, True)
 
@@ -524,14 +546,14 @@ class BoostingManager(TaskManager):
         download = torrent.get('download', None)
         if download:
             handle = download.handle
-            if not handle.is_valid():
+            if not handle or not handle.is_valid():  ########################  temp solution
                 self._logger.error("Handle %s is not valid", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
             if not handle.has_metadata():
                 self._logger.error("Metadata %s is not valid", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
             handle.pause()
 
             self._logger.info("Writing resume data for %s", self.torrents[infohash]['name'] if infohash in self.torrents else hexlify(infohash))
-            deferred_resume = download.save_resume_data()
+            # deferred_resume = download.save_resume_data()
 
             def _remove_download(resume_data, remove_torrent_par):
                 infohash_bin = resume_data['info-hash']
@@ -551,7 +573,7 @@ class BoostingManager(TaskManager):
                 if remove_torrent_par:
                     self.torrents.pop(infohash_bin)
 
-            deferred_resume.addCallback(_remove_download, remove_torrent)
+            # deferred_resume.addCallback(_remove_download, remove_torrent)
 
     def _select_torrent(self):
         """
@@ -564,6 +586,8 @@ class BoostingManager(TaskManager):
         If not preloaded not duplicate and enabled, add it to the set need to be judged by policy
         """
         self.dummy_channel_select_agent()
+
+        self.record_test_data()
 
         torrents = {}
         for infohash in list(self.torrents):
@@ -741,10 +765,15 @@ class BoostingManager(TaskManager):
             self.channel_dict[channel[1]] = channel_dict
         self.channel_list.sort(key=lambda x: x['torrents'], reverse=True)
 
-        try:
-            self.add_source(unhexlify("f69db82a1123927c9afa489216cc3d2a799e597d"))
-        except:
-            pass
+        # try:
+        #     self.add_source(unhexlify("f69db82a1123927c9afa489216cc3d2a799e597d"))
+        # except:
+        #     pass
+        
+        # try:
+        #     self.add_source(unhexlify("a1b07a1ae7b7227f8fc138590cf76f937d97c563"))
+        # except:
+        #     pass
 
         # channel_update = map(lambda x: x["dispersy_cid"], self.channel_list)
         # for i in range(1, 4):
@@ -762,3 +791,34 @@ class BoostingManager(TaskManager):
         #         self.add_source(source)
         #     elif not self.boosting_sources[source].enabled:
         #         self.set_enable_mining(source, True)
+
+    def record_test_data(self):
+        ltsession = self.session.lm.ltmgr.get_session()
+        status = ltsession.status()
+
+        up_speed = status.upload_rate
+        down_speed = status.download_rate
+        up_total = status.total_upload
+        down_total = status.total_download
+        up_speed_payload = status.payload_upload_rate
+        down_speed_payload = status.payload_download_rate
+        up_total_payload = status.total_payload_upload
+        down_total_payload = status.total_payload_download
+
+        cpu = psutil.Process().cpu_percent()
+        rss = psutil.Process().memory_full_info().rss
+        pss = psutil.Process().memory_full_info().pss
+        swap = psutil.Process().memory_full_info().swap
+        memory_percent = psutil.Process().memory_percent(memtype='pss')
+
+        fields = [self.timestamp, up_speed, down_speed, up_total, down_total,
+                  up_speed_payload, down_speed_payload, up_total_payload, down_total_payload,
+                  cpu, rss, pss, swap, memory_percent]
+
+        self.timestamp += self.settings.swarm_interval
+
+        with open(os.path.join(self.session.config.get_state_dir(), "test_data.csv"), 'a') as t:
+            writer = csv.writer(t)
+            writer.writerow(fields)
+
+

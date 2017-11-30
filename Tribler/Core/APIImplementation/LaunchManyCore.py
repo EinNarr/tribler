@@ -635,7 +635,7 @@ class TriblerLaunchMany(TaskManager):
 
         if self.state_cb_count % 4 == 0 and self.tunnel_community:
             self.tunnel_community.monitor_downloads(states_list)
-
+        #######state callback 1 time/s
         returnValue([])
 
     #
@@ -690,7 +690,11 @@ class TriblerLaunchMany(TaskManager):
             # pstate is invalid or non-existing
             _, file = os.path.split(filename)
 
-            infohash = binascii.unhexlify(file[:-6])
+            ##################problem here, sometimes(not sure if always), filename contains '_'
+            infohash = file[:-6]
+            if infohash.startswith('_'):
+                infohash = infohash[1:]
+            infohash = binascii.unhexlify(infohash)
 
             torrent_data = self.torrent_store.get(infohash)
             if torrent_data:

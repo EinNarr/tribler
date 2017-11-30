@@ -11,7 +11,7 @@ from binascii import hexlify
 
 import operator
 
-from Tribler.Core.simpledefs import DLSTATUS_DOWNLOADING, DLSTATUS_SEEDING
+from Tribler.Core.simpledefs import DLSTATUS_DOWNLOADING, DLSTATUS_SEEDING, DLSTATUS_STOPPED
 
 
 class BoostingPolicy(object):
@@ -197,34 +197,58 @@ class JohanPolicy(BoostingPolicy):  # can be optimized. key_check is the worst f
         self.reverse = False
         self.reserve_num = 5
         self.upload_last = {}  # total upload in torrent_status at the end of last interval.
+        self.timestamp = 0
 
     def apply(self, torrents, max_active):
         torrents_start = []
         torrents_stop = []
 
-        infohash_start = []
+        torrent_inactive = [torrent for torrent in torrents.itervalues() if not self.key_check(torrent)]
 
-        for _ in range(0, self.reserve_num):
-            infohash = random.choice(list(torrents))
-            torrent = self.session.get_download(infohash)
-            if not torrent or not (torrent.get_status() == DLSTATUS_DOWNLOADING or torrent.get_status() == DLSTATUS_SEEDING):
-                torrents_start.append(torrents[infohash])
-                infohash_start.append(infohash)
+        num_start = max_active-len(torrents)+len(torrent_inactive)+self.reserve_num
+
+        if num_start < 0:
+            num_start = 0
+
+        if num_start > len(torrent_inactive):
+            num_start = len(torrent_inactive)
+
+        torrents_start = random.sample(torrent_inactive, num_start)
 
         sorted_torrents = sorted([torrent for torrent in torrents.itervalues()
                                   if self.key_check(torrent)],
                                  key=self.key, reverse=self.reverse)
-        if max_active < len(sorted_torrents):
-            for torrent in sorted_torrents[max_active*8/10:]:
-                infohash = torrent["metainfo"].get_infohash()
-                if self.session.get_download(infohash) and infohash not in infohash_start:
-                    torrents_stop.append(torrent)
+
+        # if max_active <= len(sorted_torrents):
+        for torrent in sorted_torrents[max_active:]:
+            infohash = torrent["metainfo"].get_infohash()
+            if self.session.get_download(infohash):
+                torrents_stop.append(torrent)
 
         for torrent in torrents.itervalues():
             infohash = torrent['metainfo'].get_infohash()
             torrent_impl = self.session.get_download(infohash)
             if torrent_impl:
                 self.upload_last[infohash] = torrent_impl.get_total_upload()
+
+        
+        #########################################
+        import csv
+        import os
+        torrent_start_log = [torrent['metainfo'].get_infohash() for torrent in torrents_start]
+        torrent_infohash_log = [torrent['metainfo'].get_infohash() for torrent in sorted_torrents]
+        torrent_stop_log = [torrent['metainfo'].get_infohash() for torrent in torrents_stop]
+        torrent_new_upload_log = [self.key(torrent) for torrent in sorted_torrents]
+        torrent_total_upload_log = [self.key(torrent) for torrent in sorted_torrents]
+
+        fields = [self.timestamp, torrent_start_log, torrent_stop_log, torrent_infohash_log, torrent_new_upload_log, torrent_total_upload_log]
+        with open(os.path.join(self.session.config.get_state_dir(), "test_log.csv"), 'a') as t:
+            writer = csv.writer(t)
+            writer.writerow(fields)
+
+        self.timestamp += self.session.config.get_credit_mining_swarm_interval()
+
+        #########################################
 
         return torrents_start, torrents_stop
 
@@ -240,4 +264,4 @@ class JohanPolicy(BoostingPolicy):  # can be optimized. key_check is the worst f
     def key_check(self, key):
         infohash = key['metainfo'].get_infohash()
         torrent = self.session.get_download(infohash)
-        return torrent and (torrent.get_status() == DLSTATUS_DOWNLOADING or torrent.get_status() == DLSTATUS_SEEDING)
+        return torrent and not torrent.get_status() == DLSTATUS_STOPPED
