@@ -1,183 +1,145 @@
 """
 Supported boosting policy.
 
-Author(s): Egbert Bouman, Mihai Capota, Elric Milon, Ardhi Putra
+Author(s): Bohao Zhang, based on the work of Egbert Bouman, Mihai Capota, Elric Milon, Ardhi Putra
 """
 import logging
 import random
-
-import time
-from binascii import hexlify
-
-import operator
-
+from heapq import nlargest, nsmallest
 
 class BoostingPolicy(object):
     """
     Base class for determining what swarm selection policy will be applied
     """
 
-    def __init__(self, session):
+    def __init__(self, session, torrents_enabled, torrents_boosting, max_active):
+        """
+        @param session: the Tribler session.
+        @param torrents_enabled: the dictionary of torrent which are currently enabled.
+        @param torrents_boosting: the dictionary of torrent which are being boosted.
+        @param max_active: the max number of torrents that is allowed to be boosted at the same time.
+        """
         self.session = session
-        # function that checks if key can be applied to torrent
-        self.reverse = None
 
+        self.torrents_enabled = torrents_enabled
+        self.torrents_boosting = torrents_boosting
+
+        self.max_active = max_active
+
+        ###########################################################
         self._logger = logging.getLogger("BoostingPolicy")
+        self._logger.setLevel(1)
+        ###########################################################
 
-    def apply(self, torrents, max_active):
-        """
-        apply the policy to the torrents stored
-        """
-        sorted_torrents = sorted([torrent for torrent in torrents.itervalues()
-                                  if self.key_check(torrent)],
-                                 key=self.key, reverse=self.reverse)
+    def set_max_active(self, max_active):
+        self.max_active = max_active
+        return self
 
-        torrents_start = []
-        for torrent in sorted_torrents[:max_active]:
-            if not self.session.get_download(torrent["metainfo"].get_infohash()):
-                torrents_start.append(torrent)
-        torrents_stop = []
-        for torrent in sorted_torrents[max_active:]:
-            if self.session.get_download(torrent["metainfo"].get_infohash()):
-                torrents_stop.append(torrent)
+    def set_torrent_pool(self, torrents_enabled, torrents_boosting):
+        self.torrents_boosting = torrents_boosting
+        self.torrents_enabled = torrents_enabled
+
+    def apply(self):
+        """
+        Function to apply the police and generate a list of torrents to be started and stopped in the next iteration.
+        """
+        # The list of torrent to be boosted in the next iteration.
+        chosen_ones = nlargest(self.max_active, self.torrents_enabled.values(), key=self.policy_key)
+
+        torrents_start = [torrent for torrent in chosen_ones if torrent.get_infohash() not in self.torrents_boosting]
+        torrents_stop = [torrent for torrent in self.torrents_boosting.values() if torrent not in chosen_ones]
 
         return torrents_start, torrents_stop
 
-    def key(self, key):
+    def policy_key(self, torrent):
         """
-        function to find a key of an object
+        Function to generate potential of a torrent.
+        The larger value this returns, the better potential this torrent has.
+
+        @param torrent: BoostingTorrent object
         """
         return None
 
-    def key_check(self, key):
+    def policy_filter(self, torrent):
         """
-        function to check whether a swarm is included to download
-        """
-        return False
+        Fuction to filter the torrent which are eligible for boosting.
+        Return true by default.
 
+        @param torrent: BoostingTorrent object
+        """
+        return True
 
 class RandomPolicy(BoostingPolicy):
     """
-    A credit mining policy that chooses a swarm randomly
+    The policy that selects torrents randomly.
     """
-    def __init__(self, session):
-        BoostingPolicy.__init__(self, session)
-        self.reverse = False
-
-    def key_check(self, key):
-        return True
-
-    def key(self, key):
+    def policy_key(self, torrent):
         return random.random()
-
 
 class CreationDatePolicy(BoostingPolicy):
     """
-    A credit mining policy that chooses swarm by its creation date
-
-    The idea is, older swarms need to be boosted.
+    The policy that selects the oldest swarms.
     """
-    def __init__(self, session):
-        BoostingPolicy.__init__(self, session)
-        self.reverse = True
-
-    def key_check(self, key):
-        return key['creation_date'] > 0
-
-    def key(self, key):
-        return key['creation_date']
-
+    def policy_key(self, torrent):
+        return -torrent.get_creation_date()
 
 class SeederRatioPolicy(BoostingPolicy):
     """
-    Default policy. Find the most underseeded swarm to boost.
+    Find the swarm with lowest seeder/peers ratio to boost
     """
-    def __init__(self, session):
-        BoostingPolicy.__init__(self, session)
-        self.reverse = False
+    def policy_key(self, torrent):
+        seeders, peers = torrent.get_last_downloadstate().get_num_seeds_peers()
+        return seeders/peers
 
-    def key(self, key):
-        return key['num_seeders'] / float(key['num_seeders'] + key['num_leechers'])
+class VitalityPolicy(BoostingPolicy):
+    """
+    The straightforward policy. Simply drop the a certain amount of torrents with worst vitality(upload performance).
 
-    def key_check(self, key):
-        return (key['num_seeders'] + key['num_leechers']) > 0
+    Named after the Vitality Curve policy applied by former General Electric chairman and CEO Jack Welch.
+    """
+    def __init__(self, session, torrents_enabled, torrents_boosting, max_active, reserved=5, threshold=1000):
+        super(VitalityPolicy, self).__init__(session, torrents_enabled, torrents_boosting, max_active)
 
+        # The dictionary of the total upload amount of torrents. Key:infohash, value: total upload at last investigation
+        self.total_upload_record = {}
 
-class ScoringPolicy(SeederRatioPolicy):
+        self.reserved = reserved
+        # If the torrent do not meet the threshold, directly drop it.
+        self.threshold = threshold
 
-    _MULTIPLIER = {
-        "leechratio": 5,
-        "peerratio": 3,
-        "availability": 4
-    }
+    def policy_key(self, torrent):
+        infohash = torrent.get_infohash()
+        # LibtorrentDownloadImpl object
+        download = torrent.get_download()
 
-    _SCORE = {
-        "low_speed": 0.3,
-        "high_speed": 0.5
-    }
+        total_upload = download.get_total_upload() if download else 0
+        total_upload_last = self.total_upload_record[infohash] if infohash in self.total_upload_record else 0
+        if not total_upload:
+            total_upload = 0
+            
+        upload = total_upload-total_upload_last
 
-    def __init__(self, session):
-        BoostingPolicy.__init__(self, session)
+        # update the latest data to the record dictionary
+        if download:
+            self.total_upload_record[infohash] = total_upload
+            # dead swarm detection: if the total upload amount is lower than a certain threshold
+            # the swarm is determined to be dead, and is given a -1 key (normally the key could only be as low as 0)
+            # thus the torrent would be put in the very bottom of the queue.
+            if upload < self.threshold:
+                return -1
 
-    def apply(self, torrents, max_active, force=False):
-        # scoring mechanism :
-        # - lower seeder get higher score
-        # - higher number of peer get higher score
-        # - lower availability get higher score
-        # - if there was a downloading activity, give more score
-        total_speed = {}
-        total_active = {}
-        avg_speed = {}
-        scores = {}
+        return upload
 
-        torrents_start = []
-        torrents_stop = []
+    def apply(self):
+        torrents_start, torrents_stop = super(VitalityPolicy, self).apply()
 
-        total_peers = sum([len(t['peers']) for t in torrents.itervalues()])
+        torrents_inactive = [torrent for infohash, torrent in self.torrents_enabled.items() if infohash not in self.torrents_boosting]
 
-        for ihash, t in torrents.iteritems():
+        # the total number of torrents to be boosted in the next interation is max_active+reserved
+        num_to_start = (self.max_active + self.reserved) - (len(self.torrents_boosting) + len(torrents_start) -len(torrents_stop))
+        if num_to_start > len(torrents_inactive):
+            num_to_start = len(torrents_inactive)
 
-            leech_ratio = 1.0 - (self.key(t) if self.key_check(t) else 1.0)
-            peer_ratio = float(len(t['peers']))/(float(total_peers) or 1.0)
-            avail_ratio = 1.0 - (float(t['availability'])/len(t['livepeers']) if len(t['livepeers']) else 1.0)
-
-            self._logger.debug("%s l:%f p:%f a:%f", hexlify(ihash), self._MULTIPLIER['leechratio'] * leech_ratio,
-                               self._MULTIPLIER['peerratio'] * peer_ratio,
-                               self._MULTIPLIER['availability'] * avail_ratio)
-
-            score = self._MULTIPLIER['leechratio'] * leech_ratio + self._MULTIPLIER['peerratio'] * peer_ratio + self._MULTIPLIER['availability'] * avail_ratio
-
-            total_speed[ihash] = 0
-            total_active[ihash] = 0
-            for ip_port, peer in t['peers'].iteritems():
-                if peer['speed'] != 0:
-                    total_speed[ihash] += peer['speed']
-                    total_active[ihash] += 1
-
-            scores[ihash] = score
-
-        for ihash, speed in total_speed.iteritems():
-            avg_speed[ihash] = speed/total_active[ihash] if total_active[ihash] else 0
-
-        sorted_tspeed = sorted(avg_speed.items(), key=operator.itemgetter(1))
-
-        for ihash, _ in sorted_tspeed[:len(sorted_tspeed)/2]:
-            scores[ihash] += self._SCORE['low_speed']
-        for ihash, _ in sorted_tspeed[len(sorted_tspeed)/2:]:
-            scores[ihash] += self._SCORE['high_speed']
-
-        sorted_scores = sorted(scores.items(), key=operator.itemgetter(1), reverse=True)
-
-        for ihash, score in sorted_scores[:max_active]:
-            if not self.session.get_download(ihash):
-                torrents_start.append(torrents[ihash])
-
-        for ihash, score in sorted_scores[max_active:]:
-            if self.session.get_download(ihash):
-                torrents_stop.append(torrents[ihash])
-
-        self._logger.debug("Max active : %d", max_active)
-        for ihash, score in sorted_scores:
-            self._logger.debug("Score %s : %f", hexlify(ihash), score)
+        torrents_start = torrents_start + random.sample(torrents_inactive, num_to_start)
 
         return torrents_start, torrents_stop

@@ -289,6 +289,13 @@ class TriblerLaunchMany(TaskManager):
         self._logger.info("tribler: communities are ready in %.2f seconds", timemod.time() - now_time)
 
     def init(self):
+        for handler in logging.root.handlers:
+            f = logging.Filter()
+            f.filter = lambda x: logging.Filter('BoostingManager').filter(x) or logging.Filter('ChannelSource').filter(x) or logging.Filter('BoostingTorrent').filter(x) or logging.Filter('BoostingPolicy').filter(x)
+            handler.addFilter(f)
+            handler.setLevel(1)
+
+        logging.getLogger('BoostingManager').setLevel(0)
         if self.dispersy:
             from Tribler.dispersy.community import HardKilledCommunity
 
@@ -628,6 +635,8 @@ class TriblerLaunchMany(TaskManager):
 
         if self.state_cb_count % 4 == 0 and self.tunnel_community:
             self.tunnel_community.monitor_downloads(states_list)
+        #######state callback 1 time/s
+        self.boosting_manager.on_states_callback(states_list)
 
         returnValue([])
 
@@ -683,7 +692,11 @@ class TriblerLaunchMany(TaskManager):
             # pstate is invalid or non-existing
             _, file = os.path.split(filename)
 
-            infohash = binascii.unhexlify(file[:-6])
+            ##################problem here, sometimes(not sure if always), filename contains '_'
+            infohash = file[:-6]
+            if infohash.startswith('_'):
+                infohash = infohash[1:]
+            infohash = binascii.unhexlify(infohash)
 
             torrent_data = self.torrent_store.get(infohash)
             if torrent_data:

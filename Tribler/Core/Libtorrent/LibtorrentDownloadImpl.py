@@ -1249,6 +1249,13 @@ class LibtorrentDownloadImpl(DownloadConfigInterface, TaskManager):
     def set_share_mode(self, share_mode):
         self.get_handle().addCallback(lambda handle: handle.set_share_mode(share_mode))
 
+    @checkHandleAndSynchronize()
+    def get_total_upload(self):
+        if not isinstance(self.tdef, TorrentDefNoMetainfo):
+            status = self.handle.status()
+            if hasattr(status, 'total_upload'):
+                return status.total_upload
+            return self.handle.total_upload()
 
 class LibtorrentStatisticsResponse:
 

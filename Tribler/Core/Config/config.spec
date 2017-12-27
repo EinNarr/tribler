@@ -23,7 +23,7 @@ socks5_listen_ports = string_list(default=list('-1', '-1', '-1', '-1', '-1'))
 exitnode_enabled = boolean(default=False)
 
 [market_community]
-enabled = boolean(default=True)
+enabled = boolean(default=False)
 matchmaker = boolean(default=True)
 
 [trustchain]
@@ -109,7 +109,7 @@ poll_interval = integer(min=1, default=5)
 history_size = integer(min=1, default=20)
 
 [credit_mining]
-enabled = boolean(default=False)
+enabled = boolean(default=True)
 max_torrents_per_source = integer(default=20)
 max_torrents_active = integer(default=50)
 source_interval = integer(default=100)
@@ -123,4 +123,4 @@ boosting_sources = string_list(default=list())
 boosting_enabled = string_list(default=list())
 boosting_disabled = string_list(default=list())
 archive_sources = string_list(default=list())
-policy = string(default=seederratio)
+policy = string(default=vitality)
