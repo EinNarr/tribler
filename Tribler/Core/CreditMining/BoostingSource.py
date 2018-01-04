@@ -249,7 +249,7 @@ class ChannelSource(BoostingSource):
             return
 
         if self.torrent_not_loaded and self.enabled:
-            self._logger.debug("No loaded #torrents : %d from %s", len(self.torrent_not_loaded), self.channel_name)
+            self._logger.debug("Not loaded #torrents : %d from %s", len(self.torrent_not_loaded), self.channel_name)
             for infohash in self.torrent_not_loaded.copy():
                 # if the torrent is still being loaded in the next iteration, skip
                 if infohash in self.load_torrent_callbacks:

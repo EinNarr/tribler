@@ -8,9 +8,6 @@ Author(s): Bohao Zhang, based on the work of Egbert Bouman, Mihai Capota, Elric 
 import os
 import shutil
 import psutil
-import logging
-import csv
-import twisted
 
 from binascii import hexlify, unhexlify
 
@@ -217,7 +214,8 @@ class BoostingManager(TaskManager):
         """
         for download_state in states_list:
             infohash = download_state.get_download().get_def().get_infohash()
-            self.torrents[infohash].update_downloadstate(download_state)
+            if infohash in self.torrents:
+                self.torrents[infohash].update_downloadstate(download_state)
 
 ########################################
     def __bdl_callback(self, ds):##############what is this
