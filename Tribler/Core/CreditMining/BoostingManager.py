@@ -113,6 +113,9 @@ class BoostingManager(TaskManager):
     def get_torrent_list(self):
         return self.torrents
 
+    def get_boosting_list(self):
+        return self.torrents_boosting
+
     def shutdown(self):
         """
         Shutting down boosting manager. It also stops and remove all the sources.
@@ -271,6 +274,20 @@ class BoostingManager(TaskManager):
         """
         self._logger.info("Stopping %s, reason : %s", torrent.get_name(), reason)
         torrent.stop()
+
+    def torrent_is_boosting(self, infohash):
+        """
+        Return whether a torrent is being boosted by this manager
+        """
+        return infohash in self.torrents_boosting
+
+    def handover_download(self, infohash):
+        """
+        Called when a torrent being boosted is also manually required by the user
+        Remove the torrent from the boosting list to hand over control
+        """
+        if infohash in self.torrents_boosting:
+            del self.torrents_boosting[infohash]
 
     def _select_torrent(self):
         """

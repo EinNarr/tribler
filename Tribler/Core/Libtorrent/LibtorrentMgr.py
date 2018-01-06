@@ -287,7 +287,12 @@ class LibtorrentMgr(TaskManager):
             torrent_handle = ltsession.add_torrent(encode_atp(atp))
             infohash = str(torrent_handle.info_hash())
             if infohash in self.torrents:
-                raise DuplicateDownloadException("This download already exists.")
+                boosting_manager = self.tribler_session.lm.boosting_manager
+                if boosting_manager and boosting_manager.torrent_is_boosting(infohash):
+                    boosting_manager.handover_download(infohash)
+                    raise DuplicateDownloadException("This download already exists in CreditMining. CreditMining has handed over this download.")
+                else:
+                    raise DuplicateDownloadException("This download already exists.")
             self.torrents[infohash] = (torrentdl, ltsession)
 
             self._logger.debug("added torrent %s", infohash)
@@ -592,7 +597,12 @@ class LibtorrentMgr(TaskManager):
             new_trackers = list(set(tdef.get_trackers_as_single_tuple()) - set(
                 d.get_def().get_trackers_as_single_tuple()))
             if not new_trackers:
-                raise DuplicateDownloadException("This download already exists.")
+                boosting_manager = self.tribler_session.lm.boosting_manager
+                if boosting_manager and boosting_manager.torrent_is_boosting(tdef.get_infohash()):
+                    boosting_manager.handover_download(tdef.get_infohash())
+                    raise DuplicateDownloadException("This download already exists in CreditMining. CreditMining has handed over this download.")
+                else:
+                    raise DuplicateDownloadException("This download already exists.")
 
             else:
                 self.tribler_session.update_trackers(tdef.get_infohash(), new_trackers)

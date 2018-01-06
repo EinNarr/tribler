@@ -25,7 +25,12 @@ class BoostingPolicy(object):
         self.torrents_enabled = torrents_enabled
         self.torrents_boosting = torrents_boosting
 
+        self.torrents_inactive = []
+        self.torrents_candidate = []
+
         self.max_active = max_active
+
+        self.chosen_ones = []
 
         ###########################################################
         self._logger = logging.getLogger("BoostingPolicy")
@@ -45,10 +50,13 @@ class BoostingPolicy(object):
         Function to apply the police and generate a list of torrents to be started and stopped in the next iteration.
         """
         # The list of torrent to be boosted in the next iteration.
-        chosen_ones = nlargest(self.max_active, self.torrents_enabled.values(), key=self.policy_key)
+        self.torrents_inactive = [torrent for infohash, torrent in self.torrents_enabled.items() if not self.session.lm.download_exists(infohash)]
+        self.torrents_candidate = self.torrents_inactive + self.torrents_boosting.values()
 
-        torrents_start = [torrent for torrent in chosen_ones if torrent.get_infohash() not in self.torrents_boosting]
-        torrents_stop = [torrent for torrent in self.torrents_boosting.values() if torrent not in chosen_ones]
+        self.chosen_ones = nlargest(self.max_active, self.torrents_candidate, key=self.policy_key)
+
+        torrents_start = [torrent for torrent in self.chosen_ones if not self.session.lm.download_exists(torrent.get_infohash())]
+        torrents_stop = [torrent for torrent in self.torrents_boosting.values() if torrent not in self.chosen_ones]
 
         return torrents_start, torrents_stop
 
@@ -134,13 +142,11 @@ class VitalityPolicy(BoostingPolicy):
     def apply(self):
         torrents_start, torrents_stop = super(VitalityPolicy, self).apply()
 
-        torrents_inactive = [torrent for infohash, torrent in self.torrents_enabled.items() if infohash not in self.torrents_boosting]
-
         # the total number of torrents to be boosted in the next interation is max_active+reserved
         num_to_start = (self.max_active + self.reserved) - (len(self.torrents_boosting) + len(torrents_start) -len(torrents_stop))
-        if num_to_start > len(torrents_inactive):
-            num_to_start = len(torrents_inactive)
+        if num_to_start > len(self.torrents_inactive):
+            num_to_start = len(self.torrents_inactive)
 
-        torrents_start = torrents_start + random.sample(torrents_inactive, num_to_start)
+        torrents_start = torrents_start + random.sample(self.torrents_inactive, num_to_start)
 
         return torrents_start, torrents_stop
