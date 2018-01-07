@@ -639,8 +639,9 @@ class TriblerLaunchMany(TaskManager):
 
         if self.state_cb_count % 4 == 0 and self.tunnel_community:
             self.tunnel_community.monitor_downloads(states_list)
-        #######state callback 1 time/s
-        self.boosting_manager.on_states_callback(states_list)
+
+        if self.boosting_manager:
+            self.boosting_manager.on_states_callback(states_list)
 
         returnValue([])
 
