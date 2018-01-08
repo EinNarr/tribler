@@ -123,7 +123,7 @@ class BoostingTorrent(object):
 
         @param source: BoostingSource object
         """
-        del self.source[source.get_dispersy_cid]
+        del self.source[source.get_dispersy_cid()]
         return self
 
     def get_source(self):
