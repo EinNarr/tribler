@@ -124,6 +124,19 @@ class BoostingSource(TaskManager):
     def _on_err(self, err_msg):
         self._logger.error(err_msg)
 
+    def shutdown(self):
+        """
+        The function to call when removing a source.
+        Aiming to delete the reference to all outer object, avoiding garbage colleting problem.
+        """
+        self.kill_tasks()
+
+        for torrent in self.torrents.values():
+            torrent.remove_source(self)
+
+        self.boosting_manager = None
+        self.torrent_insert_callback = None
+
 class ChannelSource(BoostingSource):
     """
     Credit mining source from a channel.
@@ -152,6 +165,16 @@ class ChannelSource(BoostingSource):
 
         self.session.remove_observer(self._on_database_updated)
 
+        def errback(_, infohash):
+            self._logger.info("torrent %s fetching cancelled.", unhexlify(infohash))
+
+        for infohash in self.load_torrent_callbacks:
+            deferred = self.load_torrent_callbacks[infohash]
+            deferred.addErrback(errback, infohash)
+            deferred.cancel()
+
+        self.torrent_not_loaded.clear()
+
     def get_dispersy_cid(self):
         return self.dispersy_cid
 
@@ -164,7 +187,7 @@ class ChannelSource(BoostingSource):
         def join_community():
             """
             find the community/channel id, then join
-            """#TODO can we find channel community?
+            """
             try:
                 self.community = dispersy.get_community(source, True)
                 self.register_task(str(self.source) + "_get_id", reactor.callLater(1, get_channel_id))
@@ -225,7 +248,7 @@ class ChannelSource(BoostingSource):
         def showtorrent(torrent):
             """
             assembly torrent data, call the callback
-            
+
             @param torrent: a Tribler.Core.TorrentDef object
             """
             infohash = torrent.get_infohash()

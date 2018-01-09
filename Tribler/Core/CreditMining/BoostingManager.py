@@ -125,8 +125,13 @@ class BoostingManager(TaskManager):
 
         self.cancel_all_pending_tasks()
 
-        for sourcekey in self.boosting_sources:
-            self.remove_source(sourcekey)
+        for sourcekey in self.boosting_sources.keys():
+            self.remove_source(sourcekey, recheck_torrent=False)
+        for torrent in self.torrents_boosting.values():
+            self.stop_download(torrent, reason="removing source")
+
+        # make sure that this object is not referred by anything else than LaunchManyCore object
+        # if it is referred by BoostingSource or BoostingTorrents, it may cause memory leak
 
         # remove credit mining downloaded data
         shutil.rmtree(self.settings.credit_mining_path, ignore_errors=True)
@@ -176,22 +181,27 @@ class BoostingManager(TaskManager):
         else:
             self._logger.info("Already have source %s", self.boosting_sources[source].get_name())
 
-    def remove_source(self, source_key):# not done
+    def remove_source(self, source_key, recheck_torrent=True):
         """
         remove source by stop the downloading and remove its metainfo for all its swarms
         """
-        if source_key in self.boosting_sources:
+        if source_key in self.boosting_sources.keys():
             source = self.boosting_sources.pop(source_key)
-            source.kill_tasks()
-            self._logger.info("Removed source %s", self.channel_dict[source]['name'])
+            if source_key in self.boosting_sources_enabled:
+                self.boosting_sources_enabled.pop(source_key)
+            self._logger.info("Removed source %s", source.get_name())
 
-            rm_torrents = [torrent for torrent in self.torrents.values()
-                           if torrent.source == [source_to_string(source_key)]]
+            if recheck_torrent:
+                for torrent in source.get_torrents().values():
+                    if not torrent.get_source() and torrent.get_infohash() in self.torrents:
+                        self.torrents.pop(torrent.get_infohash())
+                    if not torrent.get_enabled() and torrent.get_infohash() in self.torrents_enabled:
+                        self.torrents_enabled.pop(torrent.get_infohash())
+                        if torrent.get_infohash() in self.torrents_boosting:
+                            self.stop_download(torrent, reason="removing source")
+                            self.torrents_boosting.pop(torrent.get_infohash())
 
-            for torrent in rm_torrents:################to impl in torrent
-                self.stop_download(torrent.get_infohash(), reason="removing source")
-
-            self._logger.info("Torrents download stopped and removed")
+            source.shutdown()
 
     def on_torrent_insert(self, source, infohash, torrent):
         """
@@ -203,7 +213,7 @@ class BoostingManager(TaskManager):
         if source.get_dispersy_cid() in self.boosting_sources:
             self.torrents[infohash] = torrent
         else:
-            self._logger.info("Dropping torrent insert from removed source: %s", repr(torrent))
+            self._logger.info("Dropping torrent insert from removed source: %s", repr(torrent.getname()))
         
         if source.get_dispersy_cid() in self.boosting_sources_enabled:
             for torrent in source.get_torrents().values():

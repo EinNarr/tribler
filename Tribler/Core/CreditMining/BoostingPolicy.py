@@ -5,7 +5,6 @@ Author(s): Bohao Zhang, based on the work of Egbert Bouman, Mihai Capota, Elric 
 """
 import logging
 import random
-from heapq import nlargest, nsmallest
 from heapq import nlargest
 
 class BoostingPolicy(object):

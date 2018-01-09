@@ -81,6 +81,15 @@ class SettingsEndpoint(resource.Resource):
         if section == "libtorrent" and (option == "max_download_rate" or option == "max_upload_rate"):
             self.session.lm.ltmgr.update_max_rates_from_config()
 
+        if section == "credit_mining" and option == "enabled":
+            if self.session.lm.boosting_manager and not self.session.config.get_credit_mining_enabled():
+                self.session.lm.boosting_manager.shutdown()
+                self.session.lm.boosting_manager = None
+            if not self.session.lm.boosting_manager and self.session.config.get_credit_mining_enabled():
+                from Tribler.Core.CreditMining.BoostingManager import BoostingManager
+                self.session.lm.boosting_manager = BoostingManager(self.session)
+            
+
     def parse_settings_dict(self, settings_dict, depth=1, root_key=None):
         """
         Parse the settings dictionary.

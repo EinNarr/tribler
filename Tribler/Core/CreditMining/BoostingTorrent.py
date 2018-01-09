@@ -98,7 +98,7 @@ class BoostingTorrent(object):
         if enabled:
             self.source_enabled[source.get_dispersy_cid()] = source
         else:
-            del self.source_enabled[source.get_dispersy_cid()]
+            self.source_enabled.pop(source.get_dispersy_cid(), None)
         return self
 
     def get_enabled(self):
@@ -123,7 +123,8 @@ class BoostingTorrent(object):
 
         @param source: BoostingSource object
         """
-        del self.source[source.get_dispersy_cid()]
+        self.source.pop(source.get_dispersy_cid(), None)
+        self.source_enabled.pop(source.get_dispersy_cid(), None)
         return self
 
     def get_source(self):
@@ -166,5 +167,6 @@ class BoostingTorrent(object):
             return
         self._logger.info("Stopping download %s", self.get_name())
         self.download.stop()
-        #self.session.remove_download(self.download, hidden=True)
+        # self.download.stop_remove(removestate=True, removecontent=True)
+        # yield self.download.session.remove_download(self.download, remove_content=True)
         self.last_stopped = time.time()
