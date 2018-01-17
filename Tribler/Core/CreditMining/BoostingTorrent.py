@@ -166,7 +166,5 @@ class BoostingTorrent(object):
             self._logger.error("Task for torrent %s doesn't exist, thus cannot be stopped.", self.get_name())
             return
         self._logger.info("Stopping download %s", self.get_name())
-        self.download.stop()
-        # self.download.stop_remove(removestate=True, removecontent=True)
-        # yield self.download.session.remove_download(self.download, remove_content=True)
+        self.download.session.remove_download(self.download, remove_content=True)
         self.last_stopped = time.time()
