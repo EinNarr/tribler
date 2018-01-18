@@ -115,6 +115,10 @@ class VitalityPolicy(BoostingPolicy):
         # If the torrent do not meet the threshold, directly drop it.
         self.threshold = threshold
 
+        ############################
+        self.timestamp = 0
+        ############################
+
     def policy_key(self, torrent):
         infohash = torrent.get_infohash()
         # LibtorrentDownloadImpl object
@@ -124,6 +128,7 @@ class VitalityPolicy(BoostingPolicy):
         total_upload_last = self.total_upload_record[infohash] if infohash in self.total_upload_record else 0
         if not total_upload:
             total_upload = 0
+            total_upload_last = 0
             
         upload = total_upload-total_upload_last
 
@@ -143,9 +148,31 @@ class VitalityPolicy(BoostingPolicy):
 
         # the total number of torrents to be boosted in the next interation is max_active+reserved
         num_to_start = (self.max_active + self.reserved) - (len(self.torrents_boosting) + len(torrents_start) -len(torrents_stop))
+        # if num_to_start < 0:
+        print num_to_start, len(self.torrents_boosting), len(torrents_start), len(torrents_stop), len(self.torrents_inactive)
         if num_to_start > len(self.torrents_inactive):
             num_to_start = len(self.torrents_inactive)
 
         torrents_start = torrents_start + random.sample(self.torrents_inactive, num_to_start)
+
+        #########################################
+        import csv
+        import os
+        torrent_start_log = [torrent.get_infohash() for torrent in torrents_start]
+        torrent_infohash_log = [torrent.get_infohash() for torrent in self.chosen_ones]
+        torrent_stop_log = [torrent.get_infohash() for torrent in torrents_stop]
+        torrent_new_upload_log = [torrent.get_total_upload() for torrent in self.chosen_ones]
+        torrent_total_upload_log = [self.total_upload_record[torrent.get_infohash()] if torrent.get_infohash() in self.total_upload_record else 0 for torrent in self.chosen_ones]
+
+        import time
+
+        fields = [self.timestamp, time.time(), torrent_start_log, torrent_stop_log, torrent_infohash_log, torrent_new_upload_log, torrent_total_upload_log, len(self.torrents_boosting)]
+        with open(os.path.join(self.session.config.get_state_dir(), "test_log.csv"), 'a') as t:
+            writer = csv.writer(t)
+            writer.writerow(fields)
+
+        self.timestamp += self.session.config.get_credit_mining_swarm_interval()
+
+        #########################################
 
         return torrents_start, torrents_stop

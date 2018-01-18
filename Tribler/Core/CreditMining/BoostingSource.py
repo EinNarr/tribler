@@ -241,7 +241,7 @@ class ChannelSource(BoostingSource):
         def add_to_loaded(infohash_str):
             """
             function to add loaded infohash to memory
-            """
+            """     
             self.load_torrent_callbacks[unhexlify(infohash_str)].callback(
                 TorrentDef.load_from_memory(self.session.get_collected_torrent(unhexlify(infohash_str))))
 

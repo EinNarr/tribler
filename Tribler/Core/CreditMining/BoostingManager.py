@@ -4,7 +4,7 @@ Supported boosting policy.
 Author(s): Bohao Zhang, based on the work of Egbert Bouman, Mihai Capota, Elric Milon, Ardhi Putra
 """
 
-
+import logging
 import os
 import shutil
 import psutil
@@ -68,6 +68,7 @@ class BoostingManager(TaskManager):
         super(BoostingManager, self).__init__()
 
         self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger.setLevel(1)
 
         # the dictory of BoostingSource instances, using hexlified channel id as key
         self.boosting_sources = {}
@@ -78,6 +79,20 @@ class BoostingManager(TaskManager):
         self.torrents_boosting = {}
 
         self.session = session
+
+        #######################################
+        # For test purpose
+        import csv
+        self.timestamp = 0
+
+        fields = ["timestamp", "up_speed", "down_speed", "up_total", "down_total",
+                  "up_speed_payload", "down_speed_payload", "up_total_payload", "down_total_payload",
+                  "cpu_percent", "rss", "pss", "swap", "memory_percent"]
+
+        with open(os.path.join(self.session.config.get_state_dir(), "test_data.csv"), 'a') as t:
+            writer = csv.writer(t)
+            writer.writerow(fields)
+        #######################################
 
         self.settings = settings or BoostingSettings()
 
@@ -327,34 +342,34 @@ class BoostingManager(TaskManager):
             self._logger.info("Selecting from %s torrents %s start download", len(self.torrents_enabled), len(torrents_start))
 
     def record_test_data(self):
-        pass
-        # ltsession = self.session.lm.ltmgr.get_session()
-        # status = ltsession.status()
+        import csv
+        ltsession = self.session.lm.ltmgr.get_session()
+        status = ltsession.status()
 
-        # up_speed = status.upload_rate
-        # down_speed = status.download_rate
-        # up_total = status.total_upload
-        # down_total = status.total_download
-        # up_speed_payload = status.payload_upload_rate
-        # down_speed_payload = status.payload_download_rate
-        # up_total_payload = status.total_payload_upload
-        # down_total_payload = status.total_payload_download
+        up_speed = status.upload_rate
+        down_speed = status.download_rate
+        up_total = status.total_upload
+        down_total = status.total_download
+        up_speed_payload = status.payload_upload_rate
+        down_speed_payload = status.payload_download_rate
+        up_total_payload = status.total_payload_upload
+        down_total_payload = status.total_payload_download
 
-        # cpu = psutil.Process().cpu_percent()
-        # rss = psutil.Process().memory_full_info().rss
-        # pss = psutil.Process().memory_full_info().pss
-        # swap = psutil.Process().memory_full_info().swap
-        # memory_percent = psutil.Process().memory_percent(memtype='pss')
+        cpu = psutil.Process().cpu_percent()
+        rss = psutil.Process().memory_full_info().rss
+        pss = psutil.Process().memory_full_info().pss
+        swap = psutil.Process().memory_full_info().swap
+        memory_percent = psutil.Process().memory_percent(memtype='pss')
 
-        # fields = [self.timestamp, up_speed, down_speed, up_total, down_total,
-        #           up_speed_payload, down_speed_payload, up_total_payload, down_total_payload,
-        #           cpu, rss, pss, swap, memory_percent]
+        fields = [self.timestamp, up_speed, down_speed, up_total, down_total,
+                  up_speed_payload, down_speed_payload, up_total_payload, down_total_payload,
+                  cpu, rss, pss, swap, memory_percent]
 
-        # self.timestamp += self.settings.swarm_interval
+        self.timestamp += self.settings.swarm_interval
 
-        # with open(os.path.join(self.session.config.get_state_dir(), "test_data.csv"), 'a') as t:
-        #     writer = csv.writer(t)
-        #     writer.writerow(fields)
+        with open(os.path.join(self.session.config.get_state_dir(), "test_data.csv"), 'a') as t:
+            writer = csv.writer(t)
+            writer.writerow(fields)
 
     def _select_channel(self):
         pass

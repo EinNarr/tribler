@@ -167,4 +167,5 @@ class BoostingTorrent(object):
             return
         self._logger.info("Stopping download %s", self.get_name())
         self.download.session.remove_download(self.download, remove_content=True)
+        self.download = None
         self.last_stopped = time.time()

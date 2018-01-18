@@ -88,7 +88,6 @@ class SettingsEndpoint(resource.Resource):
             if not self.session.lm.boosting_manager and self.session.config.get_credit_mining_enabled():
                 from Tribler.Core.CreditMining.BoostingManager import BoostingManager
                 self.session.lm.boosting_manager = BoostingManager(self.session)
-            
 
     def parse_settings_dict(self, settings_dict, depth=1, root_key=None):
         """
