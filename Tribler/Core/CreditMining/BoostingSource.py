@@ -268,7 +268,6 @@ class ChannelSource(BoostingSource):
 
         # if more torrents in this source than the limit, skip. In the new world, this is to be deleted.
         if len(self.torrents) >= self.max_torrents:
-            self._logger.debug("Max torrents in ChannelSource  %s. Not adding.", self.get_channel_name())
             return
 
         if self.torrent_not_loaded and self.enabled:

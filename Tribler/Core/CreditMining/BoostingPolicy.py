@@ -105,7 +105,7 @@ class VitalityPolicy(BoostingPolicy):
 
     Named after the Vitality Curve policy applied by former General Electric chairman and CEO Jack Welch.
     """
-    def __init__(self, session, torrents_enabled, torrents_boosting, max_active, reserved=5, threshold=1000):
+    def __init__(self, session, torrents_enabled, torrents_boosting, max_active, reserved=3, threshold=1000):
         super(VitalityPolicy, self).__init__(session, torrents_enabled, torrents_boosting, max_active)
 
         # The dictionary of the total upload amount of torrents. Key:infohash, value: total upload at last investigation
@@ -117,6 +117,8 @@ class VitalityPolicy(BoostingPolicy):
 
         ############################
         self.timestamp = 0
+        self.torrent_times = {}
+        self.torrent_times_total = {}
         ############################
 
     def policy_key(self, torrent):
@@ -149,25 +151,48 @@ class VitalityPolicy(BoostingPolicy):
         # the total number of torrents to be boosted in the next interation is max_active+reserved
         num_to_start = (self.max_active + self.reserved) - (len(self.torrents_boosting) + len(torrents_start) -len(torrents_stop))
         # if num_to_start < 0:
-        print num_to_start, len(self.torrents_boosting), len(torrents_start), len(torrents_stop), len(self.torrents_inactive)
         if num_to_start > len(self.torrents_inactive):
             num_to_start = len(self.torrents_inactive)
 
-        torrents_start = torrents_start + random.sample(self.torrents_inactive, num_to_start)
+        rand = random.sample(self.torrents_inactive, num_to_start)
+
+        torrents_start = torrents_start + rand
 
         #########################################
         import csv
         import os
-        torrent_start_log = [torrent.get_infohash() for torrent in torrents_start]
-        torrent_infohash_log = [torrent.get_infohash() for torrent in self.chosen_ones]
-        torrent_stop_log = [torrent.get_infohash() for torrent in torrents_stop]
+        from binascii import hexlify
+        torrent_start_log = [hexlify(torrent.get_infohash()) for torrent in torrents_start]
+        torrent_infohash_log = [hexlify(torrent.get_infohash()) for torrent in self.chosen_ones]
+        torrent_stop_log = [hexlify(torrent.get_infohash()) for torrent in torrents_stop]
         torrent_new_upload_log = [torrent.get_total_upload() for torrent in self.chosen_ones]
         torrent_total_upload_log = [self.total_upload_record[torrent.get_infohash()] if torrent.get_infohash() in self.total_upload_record else 0 for torrent in self.chosen_ones]
 
         import time
 
-        fields = [self.timestamp, time.time(), torrent_start_log, torrent_stop_log, torrent_infohash_log, torrent_new_upload_log, torrent_total_upload_log, len(self.torrents_boosting)]
+        for torrent in self.chosen_ones:
+            if hexlify(torrent.get_infohash()) in self.torrent_times:
+                self.torrent_times[hexlify(torrent.get_infohash())] += 1
+            else:
+                self.torrent_times[hexlify(torrent.get_infohash())] = 1
+            if hexlify(torrent.get_infohash()) in self.torrent_times_total:
+                self.torrent_times_total[hexlify(torrent.get_infohash())] += 1
+            else:
+                self.torrent_times_total[hexlify(torrent.get_infohash())] = 1
+
+        for torrent in rand:
+            if hexlify(torrent.get_infohash()) in self.torrent_times_total:
+                self.torrent_times_total[hexlify(torrent.get_infohash())] += 1
+            else:
+                self.torrent_times_total[hexlify(torrent.get_infohash())] = 1
+
+        fields = [self.timestamp, time.time(), torrent_start_log, torrent_stop_log, torrent_infohash_log, torrent_new_upload_log, torrent_total_upload_log, len(self.torrents_boosting), self.torrent_times, self.torrent_times_total]
         with open(os.path.join(self.session.config.get_state_dir(), "test_log.csv"), 'a') as t:
+            writer = csv.writer(t)
+            writer.writerow(fields)
+        
+        fields = []
+        with open(os.path.join(self.session.config.get_state_dir(), "torrent_log.csv"), 'a') as t:
             writer = csv.writer(t)
             writer.writerow(fields)
 

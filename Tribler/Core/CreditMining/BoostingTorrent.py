@@ -145,7 +145,7 @@ class BoostingTorrent(object):
             return
 
         # Not using session.start_download_from_tdef() because it does not allow disabling the checkpoint.
-        self.download = session.lm.add(self.torrent_def, dscfg, hidden=True, checkpoint_disabled=True)
+        self.download = session.lm.add(self.torrent_def, dscfg, hidden=True, checkpoint_disabled=True, share_mode = True)
 
     def restart(self):
         """
